@@ -16,13 +16,8 @@ Verifies the 10 mandatory operational scenarios defined in Phase Eight:
 import asyncio
 import json
 from unittest.mock import patch
-import pytest
 from backend.app.models.incident import Incident
 from backend.app.models.unit import EmergencyUnit
-from backend.app.models.dispatch import DispatchAssignment
-from backend.app.models.audit import AuditLog
-from ai.fallback import generate_fallback_assessment
-from ai.rules import evaluate_deterministic_rules
 
 
 # ---------------------------------------------------------------------------
