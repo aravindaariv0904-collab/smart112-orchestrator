@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart112.gov/schemas/assessment.schema.json",
+  "title": "Smart112Assessment",
+  "description": "Contract schema for AI and heuristic triage evaluation of an emergency incident.",
+  "type": "object",
+  "required": [
+    "incident_id",
+    "extracted_facts",
+    "confidence_score",
+    "uncertainty_flags",
+    "needs_review",
+    "assessed_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "incident_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Foreign UUID referencing the parent incident."
+    },
+    "assessment_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this specific assessment run."
+    },
+    "extracted_facts": {
+      "type": "object",
+      "required": [
+        "summary",
+        "primary_emergency_type"
+      ],
+      "additionalProperties": true,
+      "description": "Structured facts parsed by NLU/Gemini from caller speech and telemetry.",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Concise factual summary of the emergency event."
+        },
+        "primary_emergency_type": {
+          "type": "string",
+          "description": "Specific nature of emergency (e.g. cardiac arrest, structure fire, armed robbery)."
+        },
+        "victims_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Estimated count of injured or affected individuals."
+        },
+        "weapons_involved": {
+          "type": "boolean",
+          "default": false,
+          "description": "Flag indicating if firearms, knives, or dangerous weapons are present."
+        },
+        "fire_present": {
+          "type": "boolean",
+          "default": false,
+          "description": "Flag indicating active fire or dense smoke."
+        },
+        "hazardous_materials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Flag indicating chemical, biological, or radioactive hazard."
+        },
+        "trapped_persons": {
+          "type": "boolean",
+          "default": false,
+          "description": "Flag indicating victims trapped in vehicles or structures."
+        },
+        "caller_emotional_state": {
+          "type": "string",
+          "enum": ["CALM", "ANXIOUS", "PANICKED", "HYSTERICAL", "UNRESPONSIVE", "UNKNOWN"],
+          "default": "UNKNOWN",
+          "description": "Assessed emotional baseline of the reporting party."
+        },
+        "special_instructions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Immediate tactical considerations (e.g. access code required, guard dog on premises)."
+        }
+      }
+    },
+    "confidence_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Model confidence in triage classification (0.0 to 1.0)."
+    },
+    "uncertainty_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "AUDIO_DISTORTION",
+          "LANGUAGE_BARRIER",
+          "AMBIGUOUS_LOCATION",
+          "CONFLICTING_STATEMENTS",
+          "SUSPECTED_PRANK",
+          "LOW_CONFIDENCE_THRESHOLD",
+          "AI_TIMEOUT",
+          "AI_API_ERROR",
+          "SCHEMA_DEVIATION",
+          "MULTIPLE_CALLS_CONVERGING"
+        ]
+      },
+      "description": "Explicit warning flags identifying uncertainty or technical failure points."
+    },
+    "needs_review": {
+      "type": "boolean",
+      "description": "Fail-safe indicator. True if confidence < threshold, uncertainty flags present, or AI timed out."
+    },
+    "model_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Diagnostic metadata regarding the AI inference pipeline.",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "description": "Name or version of the inference model (e.g. gemini-2.0-flash, heuristic-fallback)."
+        },
+        "latency_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Roundtrip latency of the assessment execution in milliseconds."
+        },
+        "token_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Prompt and completion tokens consumed."
+        }
+      }
+    },
+    "assessed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of assessment completion."
+    }
+  }
+}

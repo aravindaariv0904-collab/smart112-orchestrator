@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart112.gov/schemas/dispatch.schema.json",
+  "title": "Smart112Dispatch",
+  "description": "Contract schema for authoritative emergency unit dispatch execution and tracking.",
+  "type": "object",
+  "required": [
+    "incident_id",
+    "unit_id",
+    "dispatcher_id",
+    "timestamp",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "dispatch_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique UUID for this dispatch transaction."
+    },
+    "incident_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID of the incident to which the unit is assigned."
+    },
+    "unit_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Authoritative identifier of the dispatched response unit."
+    },
+    "dispatcher_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier of the authenticated human dispatcher authorizing this deployment."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of dispatch issuance."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "ACKNOWLEDGED",
+        "EN_ROUTE",
+        "ON_SCENE",
+        "TRANSPORTING",
+        "STANDBY",
+        "COMPLETED",
+        "CANCELLED",
+        "REJECTED"
+      ],
+      "description": "Current real-time operational status of the dispatched unit."
+    },
+    "priority_override": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indicates whether dispatcher escalated priority above AI recommendation."
+    },
+    "dispatch_channel": {
+      "type": "string",
+      "enum": ["CAD_WEBSOCKET", "TETRA_RADIO", "MOBILE_MDT", "AUTOMATED_SMS", "VOICE_PAGING"],
+      "default": "CAD_WEBSOCKET",
+      "description": "Primary communication channel over which dispatch order was relayed."
+    },
+    "special_dispatch_notes": {
+      "type": "string",
+      "description": "Tactical notes, entry instructions, or safety warnings relayed to the responding crew."
+    },
+    "acknowledged_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when responding crew acknowledged receipt on MDT or radio."
+    },
+    "on_scene_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when unit confirmed arrival at incident coordinates."
+    },
+    "cleared_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when unit completed assignment and returned to service."
+    }
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://smart112.gov/schemas/recommendation.schema.json",
+  "title": "Smart112Recommendation",
+  "description": "Contract schema for unit recommendation and spatial optimization for incident dispatch.",
+  "type": "object",
+  "required": [
+    "incident_id",
+    "candidate_units",
+    "rationale",
+    "recommended_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "recommendation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this recommendation batch."
+    },
+    "incident_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Foreign UUID referencing the parent incident."
+    },
+    "candidate_units": {
+      "type": "array",
+      "minItems": 0,
+      "description": "Ranked list of emergency response units identified by spatial proximity and capability match.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "distance_km",
+          "eta_min"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique identifier of the response unit (e.g. ALS-AMB-04, ENG-12, POL-99)."
+          },
+          "callsign": {
+            "type": "string",
+            "description": "Tactical callsign used over radio and dispatch networks."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "AMBULANCE_BLS",
+              "AMBULANCE_ALS",
+              "FIRE_ENGINE",
+              "LADDER_TRUCK",
+              "RESCUE_SQUAD",
+              "POLICE_PATROL",
+              "POLICE_TACTICAL",
+              "HAZMAT_CONTAINMENT",
+              "COMMAND_CHIEF",
+              "AIR_AMBULANCE",
+              "OTHER"
+            ],
+            "description": "Operational classification and specialization of the unit."
+          },
+          "distance_km": {
+            "type": "number",
+            "minimum": 0.0,
+            "description": "Geodesic or routing distance to incident coordinates in kilometers (calculated via local PostGIS)."
+          },
+          "eta_min": {
+            "type": "number",
+            "minimum": 0.0,
+            "description": "Estimated time of arrival in minutes based on real-time speed and road topology."
+          },
+          "station_id": {
+            "type": "string",
+            "description": "Base station, firehouse, or precinct identifier."
+          },
+          "readiness_status": {
+            "type": "string",
+            "enum": ["AVAILABLE", "RETURNING", "STANDBY", "ON_DUTY"],
+            "default": "AVAILABLE",
+            "description": "Operational availability status before dispatch."
+          },
+          "capability_tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specialized certifications or equipment (e.g. defibrillator, thermal_imaging, jaws_of_life)."
+          }
+        }
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 5,
+      "description": "Structured operational justification explaining unit selection, routing priority, and capability pairing."
+    },
+    "strategy": {
+      "type": "string",
+      "enum": ["PROXIMITY_OPTIMIZED", "CAPABILITY_MATCHED", "BALANCED_LOAD", "FALLBACK_NEAREST"],
+      "default": "PROXIMITY_OPTIMIZED",
+      "description": "Dispatch recommendation heuristic strategy applied."
+    },
+    "recommended_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of recommendation calculation."
+    }
+  }
+}
