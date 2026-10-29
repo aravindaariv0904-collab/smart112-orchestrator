@@ -32,7 +32,7 @@ def calculate_eta_minutes(distance_km: float, speed_kmh: float = 40.0) -> float:
     if distance_km <= 0:
         return 1.0
     minutes = (distance_km / speed_kmh) * 60.0
-    # Minimum 1 minute dispatch dispatch preparation/rollout buffer
+    # Minimum 1 minute dispatch preparation/rollout buffer
     return round(max(1.0, minutes), 1)
 
 def match_candidate_units(
@@ -70,13 +70,37 @@ def match_candidate_units(
             "rationale": "No emergency units are currently AVAILABLE. Mutual aid escalation required."
         }
 
-    # 3. Calculate spatial distances and ETAs
+    # 3. Check for PostGIS spatial distance capability
+    postgis_distances: Dict[str, float] = {}
+    is_postgres = db.bind and db.bind.dialect.name == "postgresql"
+    if is_postgres:
+        try:
+            query = text("""
+                SELECT id, ST_Distance(
+                    ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
+                ) / 1000.0 AS dist_km
+                FROM emergency_units
+                WHERE status = 'AVAILABLE'
+            """)
+            result = db.execute(query, {"lon": incident.longitude, "lat": incident.latitude}).fetchall()
+            for row in result:
+                postgis_distances[str(row[0])] = round(float(row[1]), 2)
+            logger.info("Calculated unit proximity using native PostGIS ST_Distance.")
+        except Exception as e:
+            logger.warning(f"PostGIS spatial query failed ({e}); falling back to in-memory Haversine.")
+            postgis_distances = {}
+
+    # 4. Calculate spatial distances and ETAs
     candidates = []
     for unit in available_units:
-        dist_km = haversine_distance_km(
-            incident.latitude, incident.longitude,
-            unit.latitude, unit.longitude
-        )
+        if unit.id in postgis_distances:
+            dist_km = postgis_distances[unit.id]
+        else:
+            dist_km = haversine_distance_km(
+                incident.latitude, incident.longitude,
+                unit.latitude, unit.longitude
+            )
         eta_min = calculate_eta_minutes(dist_km, settings.URBAN_SPEED_KMH)
         
         # Priority boost for matching preferred unit type
@@ -95,7 +119,7 @@ def match_candidate_units(
             "_sort_key": (type_priority, dist_km)
         })
 
-    # 4. Sort primarily by capability match, then shortest spatial distance
+    # 5. Sort primarily by capability match, then shortest spatial distance
     candidates.sort(key=lambda x: x["_sort_key"])
     top_candidates = candidates[:limit]
 
@@ -106,7 +130,7 @@ def match_candidate_units(
         c_copy.pop("_sort_key", None)
         cleaned_candidates.append(c_copy)
 
-    # 5. Formulate tactical rationale
+    # 6. Formulate tactical rationale
     if cleaned_candidates:
         first = cleaned_candidates[0]
         rationale = (
