@@ -116,7 +116,8 @@ def match_candidate_units(
             "station": unit.station,
             "latitude": unit.latitude,
             "longitude": unit.longitude,
-            "_sort_key": (type_priority, dist_km)
+            # Callsign breaks distance ties deterministically across DB row orders.
+            "_sort_key": (type_priority, dist_km, (unit.callsign or "").upper())
         })
 
     # 5. Sort primarily by capability match, then shortest spatial distance

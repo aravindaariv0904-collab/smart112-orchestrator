@@ -18,6 +18,10 @@ class DispatchAssignment(Base):
     on_scene_at = Column(DateTime(timezone=True), nullable=True)
     cleared_at = Column(DateTime(timezone=True), nullable=True)
 
+    @property
+    def dispatch_id(self) -> str:
+        return self.id
+
     def to_dict(self):
         return {
             "id": self.id,

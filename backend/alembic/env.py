@@ -51,7 +51,9 @@ def run_migrations_online() -> None:
             connection.commit()
 
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
         )
 
         with context.begin_transaction():

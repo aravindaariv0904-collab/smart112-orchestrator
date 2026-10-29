@@ -1,21 +1,48 @@
+name: smart112
+
 services:
   postgres:
     image: postgis/postgis:16-3.4-alpine
     container_name: smart112-postgres
-    restart: always
+    restart: unless-stopped
+
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: smart112
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-smart112}
+      # Deterministic collation/encoding for reproducible local + CI datasets.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+
     ports:
-      - "5432:5432"
+      # Host port is overridable so a pre-existing local PostgreSQL can stay on 5432.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Runs once on an empty data directory: enables the PostGIS extension.
+      - ./scripts/postgres/init:/docker-entrypoint-initdb.d:ro
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d smart112"]
+      # Ready only when the server answers AND the PostGIS extension is installed.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB &&
+          psql -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB -tAc
+          "SELECT 1 FROM pg_extension WHERE extname = 'postgis'" | grep -q 1
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
+
+    shm_size: 256mb
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pgdata:
