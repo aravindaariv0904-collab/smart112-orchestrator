@@ -4,17 +4,18 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
-  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        critical: '#ef4444',
-        high: '#f97316',
-        moderate: '#eab308',
-        low: '#3b82f6',
-        surface: '#0f172a',
-        panel: '#1e293b',
-        bordercol: '#334155'
+        brand: {
+          dark: '#0B1120',
+          card: '#151F32',
+          border: '#22324F',
+          accent: '#E11D48',
+          blue: '#2563EB',
+          emerald: '#10B981',
+          amber: '#F59E0B'
+        }
       }
     },
   },

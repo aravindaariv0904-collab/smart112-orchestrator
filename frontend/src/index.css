@@ -1,45 +1,85 @@
+@import 'leaflet/dist/leaflet.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply bg-slate-950 text-slate-100;
-  }
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #080D1A;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
 }
 
-/* Custom Pulsing Leaflet Markers */
-.pulsing-pin {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 rgba(239, 68, 68, 0.7);
-  animation: pulse 1.5s infinite;
-  border: 3px solid #ffffff;
-}
-
-@keyframes pulse {
+/* Pulsing radar animations for emergency incident markers */
+@keyframes emergency-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.8);
   }
   70% {
-    box-shadow: 0 0 0 16px rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 18px rgba(225, 29, 72, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0);
   }
 }
 
-.unit-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  background: #1e293b;
-  border: 2px solid #38bdf8;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+.radar-ping-critical {
+  animation: emergency-pulse 1.6s infinite;
+}
+
+/* Animated tracking route polyline */
+@keyframes dash-animation {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+.animated-tracking-route {
+  stroke-dasharray: 8, 8 !important;
+  animation: dash-animation 1s linear infinite !important;
+}
+
+/* Emergency Siren Strobe */
+@keyframes siren-strobe {
+  0%, 100% {
+    box-shadow: 0 0 20px 6px rgba(239, 68, 68, 0.9);
+    border-color: #ef4444;
+  }
+  50% {
+    box-shadow: 0 0 20px 6px rgba(59, 130, 246, 0.9);
+    border-color: #3b82f6;
+  }
+}
+
+.siren-active {
+  animation: siren-strobe 0.5s infinite alternate;
+}
+
+/* Leaflet Custom Marker Container Styling */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #0F172A !important;
+  color: #F1F5F9 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7) !important;
+  padding: 4px !important;
+}
+
+.leaflet-popup-tip {
+  background: #0F172A !important;
+  border: 1px solid #334155 !important;
 }

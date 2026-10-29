@@ -7,10 +7,15 @@ export interface MapIncident {
   incident_number: string;
   latitude: number;
   longitude: number;
-  severity: string;
+  severity: any;
   category: string;
   description: string;
-  status: string;
+  status: any;
+  requires_human_review?: boolean;
+  address?: string;
+  assessment_data?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface MapUnit {

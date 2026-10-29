@@ -234,3 +234,21 @@ def approve_dispatch(
 
     logger.info(f"Unit {unit.callsign} dispatched to incident {incident.incident_number} by {dispatcher}.")
     return assignment.to_dict()
+
+@router.delete("/purge-all", status_code=status.HTTP_200_OK)
+def purge_all_incidents(db: Session = Depends(get_db)):
+    """
+    Operator reset utility: clears all active incidents, dispatches, and logs,
+    and returns all emergency response units to AVAILABLE status.
+    """
+    db.query(DispatchAssignment).delete()
+    db.query(Incident).delete()
+    db.query(AuditLog).delete()
+    db.query(EmergencyUnit).update({EmergencyUnit.status: "AVAILABLE"})
+    db.commit()
+    logger.info("All incidents purged and units reset to AVAILABLE.")
+    return {
+        "status": "success",
+        "message": "Incident queue purged. Portal is now empty and units are reset to AVAILABLE.",
+        "incident_count": 0
+    }
