@@ -223,3 +223,86 @@ def test_health_endpoint_reports_database_state(client):
 def test_unknown_api_route_returns_404(client):
     response = client.get("/api/v1/does-not-exist")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Regression: actor width, audit 404, status filter, unit guards, seed idempotency
+# ---------------------------------------------------------------------------
+def test_sanitize_actor_id_normalizes_and_truncates():
+    from backend.app.core.security import ACTOR_MAX_LENGTH, sanitize_actor_id
+
+    assert sanitize_actor_id("  dispatcher_x  ") == "DISPATCHER_X"
+    assert sanitize_actor_id(None) == "DISPATCHER_UNKNOWN"
+    assert sanitize_actor_id("   ") == "DISPATCHER_UNKNOWN"
+    truncated = sanitize_actor_id("z" * 200)
+    assert len(truncated) == ACTOR_MAX_LENGTH == 50
+
+
+def test_oversized_dispatcher_id_is_rejected_before_the_database(client, db_session):
+    """The 50-char DB column must be enforced by the schema, not by a 500 at commit."""
+    _seed_dispatchable(client, db_session)
+    response = client.post(
+        "/api/v1/incidents/inc-reg-01/approve-dispatch",
+        json={"unit_id": "unit-reg-01", "dispatcher_id": "D" * 80},
+    )
+    assert response.status_code == 422
+
+    unit = db_session.query(EmergencyUnit).filter(EmergencyUnit.id == "unit-reg-01").first()
+    db_session.refresh(unit)
+    assert unit.status == "AVAILABLE"
+
+
+def test_audit_trail_returns_404_for_unknown_incident(client):
+    response = client.get("/api/v1/audit/does-not-exist")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_invalid_status_filter_is_rejected(client):
+    response = client.get("/api/v1/incidents?status_filter=NOT_A_STATUS")
+    assert response.status_code == 400
+    assert "Invalid status filter" in response.json()["detail"]
+
+    valid = client.get("/api/v1/incidents?status_filter=assessed")
+    assert valid.status_code == 200
+
+
+def test_busy_unit_status_requires_an_active_assignment(client, db_session):
+    unit = EmergencyUnit(
+        id="unit-idle-01",
+        callsign="AMB-IDLE-01",
+        unit_type="AMBULANCE",
+        latitude=16.3067,
+        longitude=80.4365,
+        status="AVAILABLE",
+    )
+    db_session.add(unit)
+    db_session.commit()
+
+    for target in ("DISPATCHED", "ON_SCENE"):
+        response = client.patch(
+            "/api/v1/units/unit-idle-01/status",
+            json={"status": target, "dispatcher_id": "DISPATCHER_TEST"},
+        )
+        assert response.status_code == 409, response.text
+        assert "no active dispatch assignment" in response.json()["detail"]
+
+    db_session.refresh(unit)
+    assert unit.status == "AVAILABLE"
+
+
+def test_seed_units_fills_missing_callsigns_without_duplicates(db_session):
+    from backend.app.services.seed_units import SEED_UNITS_DATA, seed_emergency_units
+
+    # Make sure the reference fleet is present, then remove exactly one row.
+    seed_emergency_units(db_session)
+    target = SEED_UNITS_DATA[0]["callsign"]
+    db_session.query(EmergencyUnit).filter(EmergencyUnit.callsign == target).delete()
+    db_session.commit()
+
+    assert seed_emergency_units(db_session) == 1
+    assert seed_emergency_units(db_session) == 0
+
+    callsigns = [c for (c,) in db_session.query(EmergencyUnit.callsign).all()]
+    assert len(callsigns) == len(set(callsigns))
+    assert target in callsigns

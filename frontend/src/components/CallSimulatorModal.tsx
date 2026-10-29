@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Mic, Upload, MapPin, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import { AudioTranscribeResult } from '../types';
@@ -55,6 +55,18 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
   const [transcribeResult, setTranscribeResult] = useState<AudioTranscribeResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Escape closes the modal unless a request is in flight.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isSubmitting && !isTranscribing) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, isSubmitting, isTranscribing, onClose]);
+
   if (!isOpen) return null;
 
   const handleApplyPreset = (p: typeof PRESETS[0]) => {
@@ -106,7 +118,12 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="call-simulator-title"
+        className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+      >
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-2.5">
@@ -114,7 +131,7 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
               <Mic className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Emergency Call Ingestion Simulator</h3>
+              <h3 id="call-simulator-title" className="text-sm font-bold text-white">Emergency Call Ingestion Simulator</h3>
               <p className="text-[11px] text-slate-400">Test real-time NLU triage &amp; Whisper speech-to-text</p>
             </div>
           </div>

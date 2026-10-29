@@ -30,6 +30,11 @@ RESERVED_PATH_PREFIXES = {"api", "health", "docs", "redoc", "openapi.json"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: enable PostGIS (PostgreSQL only), ensure tables exist, seed realistic units.
+    if settings.SKIP_STARTUP_HOOKS:
+        logger.info("SKIP_STARTUP_HOOKS is set; leaving database provisioning to the caller.")
+        yield
+        return
+
     logger.info("Initializing SMART 112 Database schemas (backend=%s)...", engine.dialect.name)
     if not is_sqlite:
         ensure_postgis(engine)

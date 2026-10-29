@@ -37,6 +37,9 @@ export interface Incident {
   assessment_data?: string;
   created_at?: string;
   updated_at?: string;
+  assigned_unit_id?: string;
+  assigned_unit_callsign?: string;
+  assigned_unit_type?: string;
 }
 
 export type float = number;
@@ -49,6 +52,9 @@ export interface ExtractedFacts {
   missing_information?: string[];
   uncertainty_detected?: boolean;
   uncertainty_flags?: string[];
+  potential_duplicate_of?: string;
+  potential_duplicate_id?: string;
+  potential_duplicate_distance_meters?: number;
   severity?: string;
   confidence_score?: number;
   requires_human_review?: boolean;

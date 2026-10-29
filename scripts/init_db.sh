@@ -13,12 +13,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-export PYTHONPATH="${PYTHONPATH:-.}:."
-
 echo "=== [SMART 112] Initializing database & PostGIS extension ==="
 
 # 1. Ensure PostGIS exists before any spatial migration runs.
 python - <<'PY'
+import os
+import sys
+
+# `python -` does not always place the cwd on sys.path (notably on Windows).
+sys.path.insert(0, os.getcwd())
+
 from sqlalchemy import text
 from backend.app.core.database import engine
 
@@ -34,9 +38,14 @@ PY
 echo "Applying database schema migrations..."
 python -m alembic -c backend/alembic.ini upgrade head
 
-# 3. Seed emergency units (no-op when the fleet already exists).
+# 3. Seed emergency units (idempotent: only missing callsigns are inserted).
 echo "Seeding emergency response units (Guntur / Vijayawada corridor)..."
 python - <<'PY'
+import os
+import sys
+
+sys.path.insert(0, os.getcwd())
+
 from backend.app.core.database import Base, SessionLocal, engine
 from backend.app.services.seed_units import seed_emergency_units
 

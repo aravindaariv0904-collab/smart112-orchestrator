@@ -17,7 +17,7 @@ from backend.app.schemas.dispatch import (
     DispatchResponse,
     UnitStatusUpdate,
 )
-from backend.app.services.dispatch_service import execute_dispatch
+from backend.app.services.dispatch_service import execute_dispatch, for_update
 from backend.app.services.state_machine import (
     InvalidStateTransitionError,
     validate_state_transition,
@@ -30,6 +30,8 @@ router = APIRouter()
 # AVAILABLE so that mobile terminals can signal "cleared" with a single tap.
 VALID_UNIT_STATUSES = {"AVAILABLE", "DISPATCHED", "ON_SCENE", "RESOLVED"}
 ACTIVE_ASSIGNMENT_STATUSES = ("DISPATCHED", "ON_SCENE")
+# States that can only ever be reached while the unit holds a live assignment.
+ASSIGNMENT_REQUIRED_STATUSES = {"DISPATCHED", "ON_SCENE"}
 
 
 @router.get("/units")
@@ -81,8 +83,11 @@ def update_unit_status(
 
     Releasing a unit back to AVAILABLE closes its active assignment and resolves the
     associated incident. Every change appends an immutable AuditLog entry.
+
+    Rows are locked unit -> assignment -> incident, the same order used by
+    ``execute_dispatch``, so concurrent dispatch and field updates cannot deadlock.
     """
-    unit = db.query(EmergencyUnit).filter(EmergencyUnit.id == id).first()
+    unit = for_update(db.query(EmergencyUnit).filter(EmergencyUnit.id == id), db).first()
     if not unit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency unit not found.")
 
@@ -100,36 +105,50 @@ def update_unit_status(
     previous_status = unit.status
 
     # Locate the active assignment for this unit (if any).
-    active_assignment = (
-        db.query(DispatchAssignment)
-        .filter(
+    active_assignment = for_update(
+        db.query(DispatchAssignment).filter(
             DispatchAssignment.unit_id == unit.id,
             DispatchAssignment.status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+        ),
+        db,
+    ).order_by(DispatchAssignment.timestamp.desc()).first()
+
+    # A unit cannot be moved into a busy state unless it actually holds a task.
+    # Without this guard a stale MDT tap could mark an idle ambulance ON_SCENE and
+    # silently strand it (no assignment exists to ever clear it again).
+    if target_status in ASSIGNMENT_REQUIRED_STATUSES and not active_assignment:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Unit {unit.callsign} has no active dispatch assignment and cannot be "
+                f"moved to '{target_status}'."
+            ),
         )
-        .order_by(DispatchAssignment.timestamp.desc())
-        .first()
-    )
 
     associated_incident = None
     if active_assignment:
-        associated_incident = (
-            db.query(Incident).filter(Incident.id == active_assignment.incident_id).first()
-        )
+        associated_incident = for_update(
+            db.query(Incident).filter(Incident.id == active_assignment.incident_id), db
+        ).first()
     audit_incident_id = associated_incident.id if associated_incident else "NO_ACTIVE_INCIDENT"
+
+    skipped_transition = None
 
     # Apply the unit + assignment + incident transitions.
     if target_status == "ON_SCENE":
         unit.status = "ON_SCENE"
-        if active_assignment:
-            active_assignment.status = "ON_SCENE"
-            if not active_assignment.on_scene_at:
-                active_assignment.on_scene_at = datetime.now(timezone.utc)
+        active_assignment.status = "ON_SCENE"
+        if not active_assignment.on_scene_at:
+            active_assignment.on_scene_at = datetime.now(timezone.utc)
         if associated_incident:
             try:
                 validate_state_transition(associated_incident.status, "ON_SCENE")
                 associated_incident.status = "ON_SCENE"
             except InvalidStateTransitionError as exc:
-                logger.warning("Incident transition skipped for unit %s: %s", unit.callsign, exc)
+                skipped_transition = str(exc)
+                logger.warning(
+                    "Incident transition skipped for unit %s: %s", unit.callsign, exc
+                )
 
     elif target_status in ("AVAILABLE", "RESOLVED"):
         unit.status = "AVAILABLE"
@@ -142,12 +161,14 @@ def update_unit_status(
                 validate_state_transition(associated_incident.status, "RESOLVED")
                 associated_incident.status = "RESOLVED"
             except InvalidStateTransitionError as exc:
-                logger.warning("Incident transition skipped for unit %s: %s", unit.callsign, exc)
+                skipped_transition = str(exc)
+                logger.warning(
+                    "Incident transition skipped for unit %s: %s", unit.callsign, exc
+                )
 
-    else:  # DISPATCHED (manual override / re-task)
+    else:  # DISPATCHED (manual override / re-task of a live assignment)
         unit.status = "DISPATCHED"
-        if active_assignment:
-            active_assignment.status = "DISPATCHED"
+        active_assignment.status = "DISPATCHED"
 
     db.add(
         AuditLog(
@@ -160,7 +181,9 @@ def update_unit_status(
                     "callsign": unit.callsign,
                     "previous_status": previous_status,
                     "new_status": unit.status,
+                    "assignment_id": active_assignment.id if active_assignment else None,
                     "incident_status": associated_incident.status if associated_incident else None,
+                    "skipped_transition": skipped_transition,
                     "notes": payload.notes,
                 }
             ),

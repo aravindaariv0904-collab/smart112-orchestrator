@@ -14,7 +14,7 @@ import {
   Activity
 } from 'lucide-react';
 
-export type PortalTab = 'CAD' | 'PUBLIC' | 'ANALYTICS' | 'AUDIT';
+export type PortalTab = 'CAD' | 'PUBLIC' | 'MDT' | 'ANALYTICS' | 'AUDIT';
 
 interface HeaderProps {
   activeTab: PortalTab;
@@ -61,8 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </h1>
           </div>
-          <p className="text-[11px] text-slate-400">
-            AI-Augmented Emergency Operations &amp; Autonomous Triage Platform
+          <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <span>AI-Augmented Emergency Operations</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 font-bold uppercase tracking-wider">
+              Simulated data
+            </span>
           </p>
         </div>
       </div>
@@ -96,6 +99,19 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Radio className="w-3.5 h-3.5 text-sky-400" />
           <span>Citizen Intake</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('MDT')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'MDT'
+              ? 'bg-rose-600 text-white shadow-md shadow-rose-900/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+          aria-label="Responder Mobile Data Terminal"
+        >
+          <Truck className="w-3.5 h-3.5 text-amber-400" />
+          <span>Responder MDT</span>
         </button>
 
         <button
@@ -137,10 +153,10 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onPurgeQueue}
           className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition"
-          title="Clear queue and make portal empty"
+          title="Delete all incidents from the local demo database (confirmation required)"
         >
           <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-          <span>Make Portal Empty</span>
+          <span>Clear Incidents</span>
         </button>
 
         <button

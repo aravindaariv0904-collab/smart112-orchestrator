@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # Destructive operator utilities (purge-all) are refused in production.
     ENABLE_DESTRUCTIVE_ENDPOINTS: bool = True
 
+    # Test/CI switch: skip schema creation + seeding on application startup. The
+    # test suite owns its own in-memory schema and must never mutate a live database.
+    SKIP_STARTUP_HOOKS: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

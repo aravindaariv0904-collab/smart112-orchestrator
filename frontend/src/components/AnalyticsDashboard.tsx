@@ -37,7 +37,32 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const availableUnits = units.filter(u => u.status === 'AVAILABLE').length;
   const dispatchedUnits = units.filter(u => u.status === 'DISPATCHED').length;
   const onSceneUnits = units.filter(u => u.status === 'ON_SCENE').length;
-  const fleetReadinessPct = units.length > 0 ? Math.round((availableUnits / units.length) * 100) : 100;
+  const fleetReadinessPct = units.length > 0 ? Math.round((availableUnits / units.length) * 100) : 0;
+
+  // Derived from persisted assessment payloads. No synthetic latency or SLA values.
+  const assessedIncidents = incidents.filter((incident) => Boolean(incident.assessment_data));
+  const confidenceScores = assessedIncidents
+    .map((incident) => {
+      try {
+        const parsed =
+          typeof incident.assessment_data === 'string'
+            ? JSON.parse(incident.assessment_data)
+            : incident.assessment_data;
+        return typeof parsed?.confidence_score === 'number' ? parsed.confidence_score : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((score): score is number => score !== null);
+  const meanConfidence =
+    confidenceScores.length > 0
+      ? Math.round(
+          (confidenceScores.reduce((sum, score) => sum + score, 0) / confidenceScores.length) * 100
+        )
+      : null;
+  const assessmentCoveragePct =
+    total > 0 ? Math.round((assessedIncidents.length / total) * 100) : 0;
+  const reviewRatePct = total > 0 ? Math.round((reviewCount / total) * 100) : 0;
 
   // Category counts
   const trafficCount = incidents.filter(i => i.category.includes('TRAFFIC') || i.category.includes('ACCIDENT')).length;
@@ -59,14 +84,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time telemetry, response velocity benchmarks, and autonomous triage audit metrics
+            Derived from persisted incidents and fleet records — no synthetic metrics
           </p>
         </div>
 
         <div className="flex items-center gap-2 text-xs">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-mono">
-            <Radio className="w-3.5 h-3.5 animate-pulse text-emerald-400" />
-            <span>Telemetry Live (6s polling)</span>
+            <Radio className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Auto-refresh (5s polling)</span>
           </div>
         </div>
       </div>
@@ -112,15 +137,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         {/* KPI 3 */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-semibold uppercase tracking-wider">AI Triage Latency</span>
+            <span className="font-semibold uppercase tracking-wider">AI Assessment Coverage</span>
             <Zap className="w-4 h-4 text-purple-400" />
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-white font-mono">&lt; 1.2s</span>
-            <span className="text-xs text-purple-400 font-semibold">Zero-Cost Flash Tier</span>
+            <span className="text-2xl font-extrabold text-white font-mono">
+              {assessedIncidents.length}/{total}
+            </span>
+            <span className="text-xs text-purple-400 font-semibold">
+              {meanConfidence !== null ? `${meanConfidence}% mean confidence` : 'No confidence reported'}
+            </span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-purple-500 h-full rounded-full" style={{ width: '92%' }} />
+            <div
+              className="bg-purple-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${assessmentCoveragePct}%` }}
+            />
           </div>
         </div>
 
@@ -131,11 +163,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <ShieldCheck className="w-4 h-4 text-sky-400" />
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-white font-mono">100%</span>
-            <span className="text-xs text-sky-400 font-semibold">SSOT Policy Enforced</span>
+            <span className="text-2xl font-extrabold text-white font-mono">{reviewRatePct}%</span>
+            <span className="text-xs text-sky-400 font-semibold">
+              {reviewCount} of {total} flagged
+            </span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-sky-500 h-full rounded-full" style={{ width: '100%' }} />
+            <div
+              className="bg-sky-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${reviewRatePct}%` }}
+            />
           </div>
         </div>
       </div>

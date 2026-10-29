@@ -66,7 +66,7 @@ export const AuditLogDrawer: React.FC<AuditLogDrawerProps> = ({
           {isLoading ? (
             <div className="p-8 text-center text-xs text-slate-400 space-y-2">
               <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              <p>Verifying ledger integrity...</p>
+              <p>Loading audit history...</p>
             </div>
           ) : error ? (
             <div className="p-3 rounded-lg bg-rose-950/80 border border-rose-500/50 text-rose-200 text-xs flex items-center gap-2">
@@ -130,7 +130,7 @@ export const AuditLogDrawer: React.FC<AuditLogDrawerProps> = ({
         {/* Footer */}
         <div className="p-3 border-t border-slate-800 bg-slate-950 text-center text-[10px] text-slate-500 flex items-center justify-center gap-1 font-mono">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Cryptographically Sealed &amp; Append-Only Guaranteed</span>
+          <span>Append-only audit history (application-enforced; not cryptographically sealed)</span>
         </div>
       </div>
     </div>

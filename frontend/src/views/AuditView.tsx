@@ -17,7 +17,7 @@ export const AuditView: React.FC = () => {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string>('');
   const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const fetchData = async () => {
     try {
@@ -58,6 +58,13 @@ export const AuditView: React.FC = () => {
   }, [selectedIncidentId]);
 
   const handleUnitStatusChange = async (unitId: string, newStatus: string) => {
+    if (newStatus === 'AVAILABLE') {
+      const confirmed = window.confirm(
+        'Clear this unit and return it to service?\n\nThis also resolves its linked incident and writes an audit entry.'
+      );
+      if (!confirmed) return;
+    }
+
     setIsUpdating(true);
     setStatusMessage(null);
     try {
@@ -76,14 +83,17 @@ export const AuditView: React.FC = () => {
         throw new Error(err.detail || 'Failed to update unit status');
       }
 
-      setStatusMessage(`Unit status transitioned to ${newStatus}. Associated incident updated.`);
+      setStatusMessage({
+        text: `Unit status transitioned to ${newStatus}. Associated incident updated.`,
+        type: 'success'
+      });
       await fetchData();
       if (selectedIncidentId) {
         const aRes = await fetch(`/api/v1/audit/${selectedIncidentId}`);
         if (aRes.ok) setAuditLogs(await aRes.json());
       }
     } catch (e: any) {
-      setStatusMessage(e.message || 'Status update error');
+      setStatusMessage({ text: e.message || 'Status update error', type: 'error' });
     } finally {
       setIsUpdating(false);
     }
@@ -113,8 +123,15 @@ export const AuditView: React.FC = () => {
         </p>
 
         {statusMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-slate-950 border border-sky-800/60 text-xs text-sky-300 font-mono">
-            {statusMessage}
+          <div
+            role="status"
+            className={`mb-4 p-3 rounded-xl border text-xs font-mono ${
+              statusMessage.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300'
+                : 'bg-rose-950/60 border-rose-800/60 text-rose-300'
+            }`}
+          >
+            {statusMessage.text}
           </div>
         )}
 
@@ -151,15 +168,25 @@ export const AuditView: React.FC = () => {
                 <div className="flex items-center space-x-1.5">
                   <button
                     onClick={() => handleUnitStatusChange(unit.id, 'ON_SCENE')}
-                    disabled={isUpdating || unit.status === 'ON_SCENE'}
-                    className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold disabled:opacity-40 transition-all cursor-pointer"
+                    disabled={isUpdating || unit.status !== 'DISPATCHED'}
+                    title={
+                      unit.status === 'DISPATCHED'
+                        ? 'Mark this unit on scene'
+                        : 'Only a dispatched unit can be marked on scene'
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
                     On Scene
                   </button>
                   <button
                     onClick={() => handleUnitStatusChange(unit.id, 'AVAILABLE')}
                     disabled={isUpdating || unit.status === 'AVAILABLE'}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold disabled:opacity-40 transition-all cursor-pointer"
+                    title={
+                      unit.status === 'AVAILABLE'
+                        ? 'Unit is already available'
+                        : 'Clear the unit and resolve its linked incident'
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
                     Clear Scene
                   </button>
@@ -195,7 +222,9 @@ export const AuditView: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-400 mb-4">
-          Strict append-only event ledger capturing every state change, AI assessment, and human dispatcher authorization with cryptographic timestamp integrity.
+          Append-only event ledger capturing state changes, AI assessments, and human dispatcher
+          authorizations. Entries are ordered by server timestamp; this prototype does not use
+          cryptographic sealing.
         </p>
 
         <div className="flex-1 overflow-y-auto space-y-3">

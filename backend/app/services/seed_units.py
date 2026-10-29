@@ -95,27 +95,40 @@ SEED_UNITS_DATA = [
 
 def seed_emergency_units(db: Session) -> int:
     """
-    Seeds initial realistic emergency response units into the database if empty.
-    Returns count of newly seeded units.
+    Ensure the reference fleet exists in the database.
+
+    Inserts only callsigns that are missing instead of skipping the whole seed when
+    any row exists. This keeps a partially populated database (e.g. after a manual
+    DELETE, or when an operator added a custom unit first) convergent on restart.
+
+    Returns the number of newly seeded units.
     """
-    existing_count = db.query(EmergencyUnit).count()
-    if existing_count > 0:
-        logger.info(f"Database already contains {existing_count} emergency units. Skipping seed.")
-        return 0
+    existing_callsigns = {
+        callsign
+        for (callsign,) in db.query(EmergencyUnit.callsign).all()
+        if callsign
+    }
 
     created = 0
     for unit_dict in SEED_UNITS_DATA:
+        if unit_dict["callsign"] in existing_callsigns:
+            continue
         unit = EmergencyUnit(
             callsign=unit_dict["callsign"],
             unit_type=unit_dict["unit_type"],
             latitude=unit_dict["latitude"],
             longitude=unit_dict["longitude"],
             station=unit_dict["station"],
-            status=unit_dict["status"]
+            status=unit_dict["status"],
         )
         db.add(unit)
+        existing_callsigns.add(unit_dict["callsign"])
         created += 1
 
-    db.commit()
-    logger.info(f"Successfully seeded {created} emergency response units.")
+    if created:
+        db.commit()
+        logger.info("Successfully seeded %s emergency response units.", created)
+    else:
+        logger.info("All %s reference emergency units already present.", len(SEED_UNITS_DATA))
+
     return created

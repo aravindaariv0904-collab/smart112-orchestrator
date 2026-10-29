@@ -2,7 +2,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.core.security import sanitize_text
+from backend.app.core.security import ACTOR_MAX_LENGTH, sanitize_text
 
 
 class IncidentCreate(BaseModel):
@@ -39,11 +39,14 @@ class IncidentResponse(BaseModel):
     assessment_data: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    assigned_unit_id: Optional[str] = None
+    assigned_unit_callsign: Optional[str] = None
+    assigned_unit_type: Optional[str] = None
 
 
 class IncidentStatusUpdate(BaseModel):
     status: str = Field(..., max_length=50)
-    dispatcher_id: Optional[str] = Field(default="SYSTEM", max_length=50)
+    dispatcher_id: Optional[str] = Field(default="SYSTEM", max_length=ACTOR_MAX_LENGTH)
     notes: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("dispatcher_id", "notes", mode="before")

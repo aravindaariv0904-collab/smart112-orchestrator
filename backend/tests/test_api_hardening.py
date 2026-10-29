@@ -151,3 +151,97 @@ def test_audio_upload_mime_and_size_validation(client):
     data = res_valid.json()
     assert "transcript" in data
     assert "extracted_facts" in data
+
+
+def test_unauthorized_dispatcher_rejected_with_403(client, db_session, seed_hardening_data):
+    """Scenario 5: Non-dispatcher / unauthorized actors must receive 403 Forbidden."""
+    unauthorized_actors = [
+        "UNAUTHORIZED_USER",
+        "GUEST",
+        "CITIZEN",
+        "CIVILIAN",
+        "ANONYMOUS",
+        "EXTERNAL_UNAUTHORIZED_ACTOR",
+    ]
+    for actor in unauthorized_actors:
+        res = client.post(
+            "/api/v1/incidents/inc-sec-01/approve-dispatch",
+            json={"unit_id": "unit-sec-01", "dispatcher_id": actor},
+        )
+        assert res.status_code == 403, f"Expected 403 for {actor}, got {res.status_code}"
+        assert "not authorized" in res.json()["detail"].lower()
+
+    # Also test via /api/v1/dispatch/confirm
+    res_confirm = client.post(
+        "/api/v1/dispatch/confirm",
+        json={
+            "incident_id": "inc-sec-01",
+            "unit_id": "unit-sec-01",
+            "dispatcher_id": "UNAUTHORIZED_GUEST_112",
+        },
+    )
+    assert res_confirm.status_code == 403
+    assert "not authorized" in res_confirm.json()["detail"].lower()
+
+
+def test_duplicate_incident_detection_flagged_without_silent_merge(client, db_session):
+    """Scenario 6: Reports within 250m & 30m window are flagged as duplicates but preserved distinctly."""
+    import json
+
+    # 1. First caller reports an accident
+    res1 = client.post(
+        "/api/v1/incidents",
+        json={
+            "description": "Multi-car collision on ring road with fuel leak",
+            "latitude": 16.3067,
+            "longitude": 80.4365,
+            "address": "Ring Road Junction",
+        },
+    )
+    assert res1.status_code == 201
+    inc1 = res1.json()
+    inc1_id = inc1["id"]
+    inc1_num = inc1["incident_number"]
+
+    # 2. Second caller reports from ~50m away at the same junction
+    res2 = client.post(
+        "/api/v1/incidents",
+        json={
+            "description": "Second caller: huge accident on ring road, car smoking",
+            "latitude": 16.3069,
+            "longitude": 80.4367,
+            "address": "Ring Road Junction near signal",
+        },
+    )
+    assert res2.status_code == 201
+    inc2 = res2.json()
+    inc2_id = inc2["id"]
+    inc2_num = inc2["incident_number"]
+
+    # 3. Verify they are separate, distinct records (NO silent merge)
+    assert inc1_id != inc2_id
+    assert inc1_num != inc2_num
+
+    # 4. Verify duplicate detection flagged incident 2
+    assert inc2["requires_human_review"] is True
+    assessment2 = json.loads(inc2["assessment_data"])
+    assert "POTENTIAL_DUPLICATE_REPORT" in assessment2.get("uncertainty_flags", [])
+    assert assessment2.get("potential_duplicate_of") == inc1_num
+    assert assessment2.get("potential_duplicate_id") == inc1_id
+    assert assessment2.get("potential_duplicate_distance_meters", 999) < 250
+
+    # 5. Third report far away (5 km away) is NOT flagged as duplicate
+    res3 = client.post(
+        "/api/v1/incidents",
+        json={
+            "description": "Medical emergency at suburban clinic",
+            "latitude": 16.3500,
+            "longitude": 80.4800,
+            "address": "Suburban Clinic",
+        },
+    )
+    assert res3.status_code == 201
+    inc3 = res3.json()
+    assessment3 = json.loads(inc3["assessment_data"])
+    assert "POTENTIAL_DUPLICATE_REPORT" not in assessment3.get("uncertainty_flags", [])
+

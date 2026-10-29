@@ -23,7 +23,9 @@ def upgrade() -> None:
         op.create_table(
             'incidents',
             sa.Column('id', sa.String(length=36), primary_key=True),
-            sa.Column('incident_number', sa.String(length=50), nullable=False, unique=True),
+            # Uniqueness is enforced by the named index below; declaring unique=True
+            # here as well creates a second, unnamed constraint on PostgreSQL.
+            sa.Column('incident_number', sa.String(length=50), nullable=False),
             sa.Column('description', sa.Text(), nullable=False),
             sa.Column('category', sa.String(length=50), nullable=False, server_default='UNKNOWN'),
             sa.Column('status', sa.String(length=50), nullable=False, server_default='REPORTED'),
@@ -43,7 +45,7 @@ def upgrade() -> None:
         op.create_table(
             'emergency_units',
             sa.Column('id', sa.String(length=36), primary_key=True),
-            sa.Column('callsign', sa.String(length=50), nullable=False, unique=True),
+            sa.Column('callsign', sa.String(length=50), nullable=False),
             sa.Column('unit_type', sa.String(length=50), nullable=False),
             sa.Column('latitude', sa.Float(), nullable=False),
             sa.Column('longitude', sa.Float(), nullable=False),
@@ -85,7 +87,11 @@ def upgrade() -> None:
         op.create_index('ix_audit_logs_incident_id', 'audit_logs', ['incident_id'])
 
 def downgrade() -> None:
-    op.drop_table('audit_logs')
-    op.drop_table('dispatch_assignments')
-    op.drop_table('emergency_units')
-    op.drop_table('incidents')
+    """Drop every table created by this revision, tolerating partial schemas."""
+    bind = op.get_bind()
+    existing_tables = set(sa.inspect(bind).get_table_names())
+
+    # Children before parents so foreign keys never block the drop.
+    for table in ('audit_logs', 'dispatch_assignments', 'incidents', 'emergency_units'):
+        if table in existing_tables:
+            op.drop_table(table)

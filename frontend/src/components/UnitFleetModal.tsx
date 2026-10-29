@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Truck, Shield, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { EmergencyUnit } from '../types';
 import { api } from '../services/api';
@@ -18,16 +18,34 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
 }) => {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [updatingUnitId, setUpdatingUnitId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !updatingUnitId) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, updatingUnitId, onClose]);
 
   if (!isOpen) return null;
 
   const handleStatusChange = async (unitId: string, newStatus: string) => {
+    if (newStatus === 'AVAILABLE') {
+      const confirmed = window.confirm(
+        'Clear this unit and return it to service?\n\nThis also resolves its linked incident and writes an audit entry.'
+      );
+      if (!confirmed) return;
+    }
+
     setUpdatingUnitId(unitId);
+    setErrorMessage(null);
     try {
       await api.updateUnitStatus(unitId, newStatus, 'DISPATCHER_SARAH', `Fleet overview manual override to ${newStatus}`);
       onRefreshUnits();
     } catch (err: any) {
-      alert(`Status update failed: ${err.message}`);
+      setErrorMessage(err.message || 'Status update failed');
     } finally {
       setUpdatingUnitId(null);
     }
@@ -40,7 +58,12 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fleet-monitor-title"
+        className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-2.5">
@@ -48,9 +71,9 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
               <Truck className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Emergency Response Fleet Monitor</h3>
+              <h3 id="fleet-monitor-title" className="text-sm font-bold text-white">Emergency Response Fleet Monitor</h3>
               <p className="text-[11px] text-slate-400">
-                10 Units Stationed Across Guntur &amp; Vijayawada Corridor
+                {units.length} simulated units · Guntur &amp; Vijayawada corridor
               </p>
             </div>
           </div>
@@ -79,6 +102,13 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
             </button>
           ))}
         </div>
+
+        {errorMessage && (
+          <div className="mx-6 mt-4 p-3 rounded-lg bg-rose-950/70 border border-rose-700/70 text-rose-200 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* List of Units */}
         <div className="p-6 overflow-y-auto space-y-2.5">
@@ -112,7 +142,7 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-400">{unit.station || 'Patrol Unit'}</p>
                   <p className="text-[10px] text-slate-500 font-mono">
-                    GPS: {unit.latitude.toFixed(4)}, {unit.longitude.toFixed(4)}
+                    Coordinates: {unit.latitude.toFixed(4)}, {unit.longitude.toFixed(4)}
                   </p>
                 </div>
 
@@ -126,9 +156,14 @@ export const UnitFleetModal: React.FC<UnitFleetModalProps> = ({
                     Available
                   </button>
                   <button
-                    disabled={updatingUnitId === unit.id || isOnScene}
+                    disabled={updatingUnitId === unit.id || unit.status !== 'DISPATCHED'}
                     onClick={() => handleStatusChange(unit.id, 'ON_SCENE')}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-purple-900/60 disabled:opacity-40 text-slate-200 border border-slate-700 text-[11px] font-medium transition"
+                    title={
+                      unit.status === 'DISPATCHED'
+                        ? 'Mark this unit on scene'
+                        : 'Only a dispatched unit can be marked on scene'
+                    }
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-purple-900/60 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 border border-slate-700 text-[11px] font-medium transition"
                   >
                     On Scene
                   </button>

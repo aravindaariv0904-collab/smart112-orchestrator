@@ -63,7 +63,6 @@ const PRESETS = [
 export const PublicPortal: React.FC = () => {
   const [description, setDescription] = useState<string>('');
   const [address, setAddress] = useState<string>('Guntur RTC Bus Station Complex, AP');
-  const [callerPhone, setCallerPhone] = useState<string>('+91 98765 43210');
   const [coordinates, setCoordinates] = useState<[number, number]>([16.3067, 80.4365]);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -90,6 +89,9 @@ export const PublicPortal: React.FC = () => {
     setCoordinates([lat, lng]);
   };
 
+  // Demo helper: fills a sample transcript. This is NOT speech recognition and does
+  // not access the microphone. Real audio transcription is available in the dispatcher
+  // "Simulate 112 Call" modal, which uploads to the backend Whisper endpoint.
   const handleSimulateVoiceCall = () => {
     setIsRecording(true);
     setTimeout(() => {
@@ -97,7 +99,7 @@ export const PublicPortal: React.FC = () => {
         "Head-on collision near Guntur RTC bus station, two passengers trapped and unconscious, fuel leaking"
       );
       setIsRecording(false);
-    }, 1200);
+    }, 600);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -116,8 +118,7 @@ export const PublicPortal: React.FC = () => {
           description,
           latitude: coordinates[0],
           longitude: coordinates[1],
-          address,
-          caller_phone: callerPhone
+          address
         })
       });
 
@@ -148,7 +149,7 @@ export const PublicPortal: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-xl font-black text-white tracking-tight">112 EMERGENCY PORTAL</h1>
-                <p className="text-xs text-slate-400">Government of Andhra Pradesh • Public Safety Ingestion</p>
+                <p className="text-xs text-slate-400">Prototype • Simulated public-safety intake (not a live 112 service)</p>
               </div>
             </div>
 
@@ -190,7 +191,10 @@ export const PublicPortal: React.FC = () => {
                   <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">✓</div>
                   <div>
                     <div className="text-xs font-bold text-white">1. Emergency Report Transmitted &amp; Triaged</div>
-                    <div className="text-[11px] text-slate-400">Classified as <span className="text-rose-400 font-bold">{submittedIncident.severity}</span> ({submittedIncident.category})</div>
+                    <div className="text-[11px] text-slate-400">
+                      AI-assisted classification: <span className="text-rose-400 font-bold">{submittedIncident.severity}</span> ({submittedIncident.category})
+                      <span className="ml-1 text-[10px] text-purple-300">— model output, not a calibrated probability</span>
+                    </div>
                   </div>
                 </div>
 
@@ -203,8 +207,8 @@ export const PublicPortal: React.FC = () => {
                     {['RECOMMENDED', 'DISPATCHED', 'ON_SCENE', 'RESOLVED'].includes(submittedIncident.status) ? '✓' : '2'}
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-white">2. Spatial PostGIS Matching</div>
-                    <div className="text-[11px] text-slate-400">Nearest available units identified by GPS proximity</div>
+                    <div className="text-xs font-bold text-white">2. Spatial Proximity Matching</div>
+                    <div className="text-[11px] text-slate-400">Nearest available simulated units ranked by geodesic distance</div>
                   </div>
                 </div>
 
@@ -244,7 +248,7 @@ export const PublicPortal: React.FC = () => {
               </div>
 
               <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-300 font-mono">
-                Caller Transcript: "{submittedIncident.description}"
+                Caller Narrative: "{submittedIncident.description}"
               </div>
 
               <div className="pt-2 flex items-center gap-2">
@@ -292,9 +296,11 @@ export const PublicPortal: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-white block">
-                    {language === 'EN' ? 'Simulate 112 Voice Call Intake' : 'వాయిస్ కాల్ అనుకరణ'}
+                    {language === 'EN' ? 'Demo Voice Intake (simulated)' : 'వాయిస్ కాల్ అనుకరణ'}
                   </span>
-                  <span className="text-[11px] text-slate-400">Audio Speech-to-Text Transcriber</span>
+                  <span className="text-[11px] text-slate-400">
+                    Fills a sample transcript — no microphone or speech recognition
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -307,7 +313,7 @@ export const PublicPortal: React.FC = () => {
                   }`}
                 >
                   <Mic className="w-4 h-4" />
-                  <span>{isRecording ? 'Transcribing...' : 'Record Speech'}</span>
+                  <span>{isRecording ? 'Filling sample...' : 'Fill Sample'}</span>
                 </button>
               </div>
 
@@ -343,7 +349,7 @@ export const PublicPortal: React.FC = () => {
               <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 text-slate-400">
                   <MapPin className="w-4 h-4 text-amber-400" />
-                  <span>GPS Coordinates (Click Map to Update):</span>
+                  <span>Map Coordinates (click map to update):</span>
                 </div>
                 <span className="font-mono font-bold text-amber-300">
                   {coordinates[0].toFixed(4)}, {coordinates[1].toFixed(4)}
@@ -368,8 +374,12 @@ export const PublicPortal: React.FC = () => {
           )}
         </div>
 
-        <div className="text-[11px] text-slate-500 border-t border-slate-800 pt-3 mt-4">
-          SMART 112: Backend Single Source of Truth. Emergency telemetry transmitted via secure authenticated channels.
+        <div className="text-[11px] text-slate-500 border-t border-slate-800 pt-3 mt-4 space-y-1">
+          <p>
+            Prototype only. All incidents, units, and dispatch actions are simulated and require
+            human dispatcher approval. Do not use for real emergencies — call 112.
+          </p>
+          <p>Incident data is persisted by the backend and returned from a single source of truth.</p>
         </div>
       </div>
 

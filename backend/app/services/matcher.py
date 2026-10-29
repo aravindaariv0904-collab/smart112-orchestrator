@@ -70,9 +70,11 @@ def match_candidate_units(
             "rationale": "No emergency units are currently AVAILABLE. Mutual aid escalation required."
         }
 
-    # 3. Check for PostGIS spatial distance capability
+    # 3. Check for PostGIS spatial distance capability. get_bind() resolves the
+    # engine even for sessions created off a Connection/transaction-scoped test bind.
     postgis_distances: Dict[str, float] = {}
-    is_postgres = db.bind and db.bind.dialect.name == "postgresql"
+    bind = db.get_bind()
+    is_postgres = bind is not None and bind.dialect.name == "postgresql"
     if is_postgres:
         try:
             query = text("""

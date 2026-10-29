@@ -6,7 +6,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.app.core.security import generate_uuid, sanitize_actor_id
+from backend.app.core.security import (
+    generate_uuid,
+    is_authorized_dispatcher,
+    sanitize_actor_id,
+)
 from backend.app.models.audit import AuditLog
 from backend.app.models.dispatch import DispatchAssignment
 from backend.app.models.incident import Incident
@@ -19,9 +23,15 @@ from backend.app.services.state_machine import (
 logger = logging.getLogger("smart112.services.dispatch")
 
 
-def _for_update(query, db: Session):
-    """Apply SELECT ... FOR UPDATE where the dialect supports row locking."""
-    if db.bind is not None and db.bind.dialect.name != "sqlite":
+def for_update(query, db: Session):
+    """
+    Apply SELECT ... FOR UPDATE where the dialect supports row locking.
+
+    Called with ``db.get_bind()`` rather than ``db.bind`` so sessions bound to an
+    explicit Connection (tests, background workers) still resolve a dialect.
+    """
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name != "sqlite":
         return query.with_for_update()
     return query
 
@@ -35,25 +45,35 @@ def execute_dispatch(
     notes: Optional[str],
     audit_action: str,
     default_notes: str,
-) -> DispatchAssignment:
+) -> dict:
     """
     Single authoritative dispatch routine shared by every dispatch entry point.
 
-    Atomically locks the incident and unit rows, rejects double-booking, validates the
+    Atomically locks the unit and incident rows, rejects double-booking, validates the
     incident state machine, persists the assignment and appends the audit ledger entry.
+
+    Rows are always locked in the same order (unit, then incident) to match
+    ``update_unit_status``; a different order would allow a deadlock between a
+    dispatcher confirming a new assignment and a field unit reporting on scene.
     """
-    incident = _for_update(db.query(Incident).filter(Incident.id == incident_id), db).first()
-    if not incident:
+    if not is_authorized_dispatcher(dispatcher_id):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Incident with ID '{incident_id}' not found.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Actor '{dispatcher_id}' is not authorized to dispatch emergency units.",
         )
 
-    unit = _for_update(db.query(EmergencyUnit).filter(EmergencyUnit.id == unit_id), db).first()
+    unit = for_update(db.query(EmergencyUnit).filter(EmergencyUnit.id == unit_id), db).first()
     if not unit:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Emergency unit with ID '{unit_id}' not found.",
+        )
+
+    incident = for_update(db.query(Incident).filter(Incident.id == incident_id), db).first()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID '{incident_id}' not found.",
         )
 
     # Prevent double assignments on already dispatched or busy units.
@@ -96,7 +116,10 @@ def execute_dispatch(
                     "unit_id": unit.id,
                     "callsign": unit.callsign,
                     "unit_type": unit.unit_type,
-                    "notes": notes,
+                    # Persist the effective note, otherwise an audit reader cannot tell
+                    # that a default was applied.
+                    "notes": resolved_notes,
+                    "notes_defaulted": notes is None,
                 }
             ),
         )
