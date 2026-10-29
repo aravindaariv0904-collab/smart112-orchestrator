@@ -105,17 +105,19 @@ docker_available() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 }
 
-container_exists() {
-  [ -n "$(docker inspect --format '{{.Id}}' "$CONTAINER_NAME" 2>/dev/null)" ]
-}
-
 container_state() {
-  docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "missing"
+  local state
+  state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null | tr -d '\r\n')"
+  [ -n "$state" ] || state="missing"
+  printf '%s' "$state"
 }
 
 container_health() {
-  docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
-    "$CONTAINER_NAME" 2>/dev/null || echo "unknown"
+  local health
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+    "$CONTAINER_NAME" 2>/dev/null | tr -d '\r\n')"
+  [ -n "$health" ] || health="unknown"
+  printf '%s' "$health"
 }
 
 container_running() {
