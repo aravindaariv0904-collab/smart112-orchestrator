@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+dist/
+build/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing & Quality
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local Databases & Secrets
+*.db
+*.sqlite3
+pgdata/
+.env
+.env.*
+*.env.*
+!.env.example
+
+# Local Audio & Cache
+audio_cache/
+local_audio/
+temp_audio/
+
+# OS & Editor Artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

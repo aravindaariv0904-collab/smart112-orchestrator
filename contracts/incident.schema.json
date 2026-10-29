@@ -6,7 +6,7 @@
   "type": "object",
   "required": [
     "id",
-    "caller_text",
+    "incident_number",
     "category",
     "severity_level",
     "status",
@@ -15,22 +15,28 @@
     "updated_at",
     "requires_human_review"
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "id": {
       "type": "string",
       "format": "uuid",
       "description": "Unique identifier for the incident."
     },
+    "incident_number": {
+      "type": "string",
+      "description": "Human-readable sequential incident number (e.g. INC-2026-0001)."
+    },
+    "raw_text": {
+      "type": "string",
+      "description": "Raw or transcribed text provided by the caller."
+    },
     "caller_text": {
       "type": "string",
-      "minLength": 1,
-      "description": "Raw or transcribed text provided by the caller or reporting entity."
+      "description": "Alias for raw caller text."
     },
     "caller_phone": {
       "type": "string",
-      "pattern": "^\\+?[1-9]\\d{1,14}$",
-      "description": "E.164 formatted contact telephone number of the caller if available."
+      "description": "Contact telephone number of the caller if available."
     },
     "category": {
       "type": "string",
@@ -50,6 +56,10 @@
     "severity_level": {
       "type": "string",
       "enum": [
+        "LEVEL_1_CRITICAL",
+        "LEVEL_2_HIGH",
+        "LEVEL_3_MODERATE",
+        "LEVEL_4_LOW",
         "CRITICAL",
         "HIGH",
         "MEDIUM",
@@ -74,7 +84,7 @@
     "coordinates": {
       "type": "object",
       "required": ["latitude", "longitude"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Geographic coordinates of the emergency location.",
       "properties": {
         "latitude": {
@@ -89,18 +99,13 @@
           "maximum": 180.0,
           "description": "WGS84 Longitude coordinate."
         },
-        "accuracy_meters": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Estimated spatial horizontal accuracy radius in meters."
-        },
         "address": {
           "type": "string",
-          "description": "Reverse-geocoded or caller-stated human-readable street address."
+          "description": "Street address or human-readable description."
         },
         "landmark": {
           "type": "string",
-          "description": "Nearby landmark, cross-street, or descriptive reference point."
+          "description": "Nearby landmark or descriptive reference point."
         }
       }
     },
@@ -108,12 +113,6 @@
       "type": "boolean",
       "default": false,
       "description": "Mandatory flag indicating whether a human dispatcher must manually verify triage/AI inference."
-    },
-    "source_channel": {
-      "type": "string",
-      "enum": ["VOICE_CALL", "SMS", "MOBILE_APP", "AUTOMATED_SENSOR", "THIRD_PARTY_CAD"],
-      "default": "VOICE_CALL",
-      "description": "Ingestion origin of the emergency report."
     },
     "created_at": {
       "type": "string",
