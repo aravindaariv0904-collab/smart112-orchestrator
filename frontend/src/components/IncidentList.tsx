@@ -119,7 +119,16 @@ export const IncidentList: React.FC<IncidentListProps> = ({
             return (
               <div
                 key={inc.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
                 onClick={() => onSelectIncident(inc)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectIncident(inc);
+                  }
+                }}
                 className={`p-3 rounded-lg cursor-pointer transition flex items-start gap-3 select-none ${
                   isSelected
                     ? 'bg-rose-950/40 border border-rose-500/40 shadow-lg'
@@ -178,7 +187,9 @@ export const IncidentList: React.FC<IncidentListProps> = ({
                   )}
 
                   <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
-                    <span className="truncate max-w-[150px]">{inc.address || 'GPS Coordinates'}</span>
+                    <span className="truncate max-w-[150px]">
+                      {inc.address || 'Coordinates only'}
+                    </span>
                     <span>{inc.created_at ? new Date(inc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'}</span>
                   </div>
                 </div>

@@ -37,11 +37,26 @@ export const AuditLogDrawer: React.FC<AuditLogDrawerProps> = ({
     loadAudit();
   }, [isOpen, incidentId]);
 
+  // Escape closes the drawer.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[2000] flex justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border-l border-slate-800 w-full max-w-lg h-full flex flex-col shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="audit-drawer-title"
+        className="bg-slate-900 border-l border-slate-800 w-full max-w-lg h-full flex flex-col shadow-2xl"
+      >
         {/* Drawer Header */}
         <div className="p-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -49,7 +64,7 @@ export const AuditLogDrawer: React.FC<AuditLogDrawerProps> = ({
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Immutable Audit Ledger</h3>
+              <h3 id="audit-drawer-title" className="text-sm font-bold text-white">Audit History</h3>
               <p className="text-[10px] text-slate-400 font-mono">Incident ID: {incidentId}</p>
             </div>
           </div>
