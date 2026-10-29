@@ -6,12 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
-from backend.app.core.security import sanitize_actor_id
+from backend.app.core.security import generate_uuid, sanitize_actor_id
 from backend.app.models.unit import EmergencyUnit
 from backend.app.models.incident import Incident
 from backend.app.models.dispatch import DispatchAssignment
 from backend.app.models.audit import AuditLog
-from backend.app.schemas.dispatch import UnitStatusUpdate
+from backend.app.schemas.dispatch import (
+    UnitStatusUpdate,
+    DispatchConfirmationRequest,
+    DispatchResponse
+)
 from backend.app.services.state_machine import validate_state_transition, InvalidStateTransitionError
 
 logger = logging.getLogger("smart112.api.dispatch")
@@ -31,6 +35,86 @@ def list_units(
         query = query.filter(EmergencyUnit.status == unit_status.upper())
     units = query.all()
     return [u.to_dict() for u in units]
+
+@router.post("/dispatch/confirm", response_model=DispatchResponse, status_code=status.HTTP_200_OK)
+def confirm_dispatch(
+    payload: DispatchConfirmationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Authoritative dispatch confirmation endpoint per ARCHITECTURE.md specification.
+    Atomically locks and validates unit availability, transitions incident to DISPATCHED,
+    creates dispatch assignment, and records the action into the immutable audit ledger.
+    """
+    is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+    inc_query = db.query(Incident).filter(Incident.id == payload.incident_id)
+    unit_query = db.query(EmergencyUnit).filter(EmergencyUnit.id == payload.unit_id)
+    if not is_sqlite:
+        inc_query = inc_query.with_for_update()
+        unit_query = unit_query.with_for_update()
+
+    incident = inc_query.first()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID '{payload.incident_id}' not found."
+        )
+
+    unit = unit_query.first()
+    if not unit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Emergency unit with ID '{payload.unit_id}' not found."
+        )
+
+    # Prevent double assignments on already dispatched or busy units
+    if unit.status != "AVAILABLE":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Unit {unit.callsign} is currently in '{unit.status}' status and cannot be dispatched."
+        )
+
+    # Validate state transition
+    try:
+        validate_state_transition(incident.status, "DISPATCHED")
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # Atomic state updates
+    unit.status = "DISPATCHED"
+    incident.status = "DISPATCHED"
+    dispatcher = sanitize_actor_id(payload.dispatcher_id)
+    dispatch_id = generate_uuid()
+
+    assignment = DispatchAssignment(
+        id=dispatch_id,
+        incident_id=incident.id,
+        unit_id=unit.id,
+        dispatcher_id=dispatcher,
+        status="DISPATCHED",
+        notes=payload.notes or "Authorized via Dispatch Gateway"
+    )
+    db.add(assignment)
+
+    # Append to immutable audit log
+    audit = AuditLog(
+        incident_id=incident.id,
+        actor=dispatcher,
+        action="DISPATCH_CONFIRMED",
+        details=json.dumps({
+            "dispatch_id": dispatch_id,
+            "unit_id": unit.id,
+            "callsign": unit.callsign,
+            "unit_type": unit.unit_type,
+            "notes": payload.notes
+        })
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(assignment)
+
+    logger.info(f"Unit {unit.callsign} confirmed dispatched to incident {incident.incident_number} by {dispatcher}.")
+    return assignment.to_dict()
 
 @router.patch("/units/{id}/status")
 def update_unit_status(
