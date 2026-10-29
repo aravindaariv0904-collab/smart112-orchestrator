@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from ai.fallback import generate_fallback_assessment
 from ai.extractor import extract_emergency_facts
 

@@ -1,6 +1,6 @@
 import math
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 

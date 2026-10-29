@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     POSTGRES_MAX_OVERFLOW: int = 10
     POSTGRES_CONNECT_TIMEOUT: int = 3
 
+    # Project-scoped DSN override. Takes precedence over the generic DATABASE_URL so
+    # an unrelated machine-wide DATABASE_URL (common on shared dev machines) cannot
+    # silently hijack this service's database.
+    SMART112_DATABASE_URL: Optional[str] = Field(
+        default=None,
+        description="Project-scoped SQLAlchemy DSN; highest priority.",
+    )
+
     # Explicit DSN override. When omitted it is assembled from the POSTGRES_* fields
     # so that overriding a single credential can never leave a stale DSN behind.
     DATABASE_URL: Optional[str] = Field(
@@ -76,7 +84,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _normalize_database_url(self):
-        url = (self.DATABASE_URL or "").strip()
+        url = (self.SMART112_DATABASE_URL or self.DATABASE_URL or "").strip()
 
         # Heroku/Render style shorthand uses the legacy `postgres://` scheme which
         # SQLAlchemy 2.x no longer recognizes.

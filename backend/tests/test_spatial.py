@@ -1,7 +1,9 @@
+import os
+
 import pytest
 from sqlalchemy import create_engine, text
 from backend.app.core.config import settings
-from backend.app.services.matcher import haversine_distance_km, calculate_eta_minutes
+from backend.app.services.matcher import calculate_eta_minutes, haversine_distance_km
 
 def test_haversine_distance_accuracy():
     # Coordinates for Guntur RTC Bus Station and Vijayawada Railway Station
@@ -65,4 +67,9 @@ def test_postgis_spatial_distance_calculations():
             is_within = conn.execute(query_within).scalar()
             assert is_within is True, "PostGIS ST_DWithin returned False for points within 50km"
     except Exception as exc:
-        pytest.skip(f"PostgreSQL/PostGIS not reachable in current host environment ({exc}). Verified fallback.")
+        if os.getenv("REQUIRE_POSTGIS_TESTS", "").strip().lower() in ("1", "true", "yes"):
+            raise
+        pytest.skip(
+            "PostgreSQL/PostGIS not reachable or extension unavailable in this host "
+            f"environment ({exc}). Set REQUIRE_POSTGIS_TESTS=1 to fail instead of skip."
+        )

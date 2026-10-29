@@ -6,7 +6,6 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.core.database import Base, get_db
 from backend.app.main import app
-from backend.app.models.incident import Incident
 from backend.app.models.unit import EmergencyUnit
 
 TEST_DB_URL = "sqlite:///:memory:"

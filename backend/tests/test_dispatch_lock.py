@@ -1,4 +1,3 @@
-import pytest
 from backend.app.models.incident import Incident
 from backend.app.models.unit import EmergencyUnit
 

@@ -9,10 +9,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from backend.app.core.config import settings
 from backend.app.core.database import Base
-from backend.app.models.incident import Incident
-from backend.app.models.unit import EmergencyUnit
-from backend.app.models.dispatch import DispatchAssignment
-from backend.app.models.audit import AuditLog
+
+# Importing the models package registers every table on Base.metadata so that
+# `alembic revision --autogenerate` can see them.
+import backend.app.models  # noqa: E402,F401
 
 config = context.config
 
@@ -22,7 +22,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 def get_url():
-    return os.getenv("DATABASE_URL", settings.DATABASE_URL)
+    """Resolve the DSN through Settings so project-scoped overrides win."""
+    return settings.DATABASE_URL
 
 def run_migrations_offline() -> None:
     url = get_url()

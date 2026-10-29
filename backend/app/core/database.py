@@ -101,6 +101,12 @@ def init_engine() -> Tuple[Engine, bool]:
                 exc,
             )
 
+    if not use_sqlite and db_url.startswith("sqlite"):
+        # Honour an explicitly configured SQLite DSN instead of discarding it.
+        engine = _create_sqlite_engine(db_url)
+        logger.info("Using configured SQLite database engine (%s).", db_url)
+        return engine, True
+
     sqlite_url = settings.SQLITE_FALLBACK_URL
     engine = _create_sqlite_engine(sqlite_url)
     logger.info("Initialized SQLite database engine fallback (%s).", sqlite_url)
