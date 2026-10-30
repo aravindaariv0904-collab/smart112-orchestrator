@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldAlert, 
   MapPin, 
@@ -29,6 +29,7 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
   onOpenAuditLog
 }) => {
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null);
+  const [recError, setRecError] = useState<string | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<CandidateUnit | null>(null);
   const [dispatcherId, setDispatcherId] = useState('DISPATCHER_SARAH');
@@ -49,20 +50,30 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
     }
   }
 
-  // Load recommendations whenever incident changes
+  // Load recommendations once per selected incident. Re-running on every status
+  // change would re-POST /recommend after the first call moved ASSESSED -> RECOMMENDED.
+  // Reset all per-incident state so a candidate selected for the previous incident can
+  // never be dispatched to the newly selected one.
+  const recommendationsLoadedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!incident) {
+      recommendationsLoadedFor.current = null;
       setRecommendation(null);
       setSelectedUnit(null);
+      setRecError(null);
       return;
     }
 
+    if (recommendationsLoadedFor.current === incident.id) return;
+    recommendationsLoadedFor.current = incident.id;
+    setRecommendation(null);
+    setSelectedUnit(null);
+    setRecError(null);
+
     if (incident.status === 'RECOMMENDED' || incident.status === 'ASSESSED') {
       loadRecommendations(incident.id);
-    } else {
-      setRecommendation(null);
     }
-  }, [incident?.id, incident?.status]);
+  }, [incident?.id]);
 
   // Escape closes the dispatch confirmation modal, unless a request is in flight.
   useEffect(() => {
@@ -78,14 +89,16 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
 
   const loadRecommendations = async (incId: string) => {
     setIsLoadingRecs(true);
+    setRecError(null);
     try {
       const data = await api.getRecommendations(incId);
       setRecommendation(data);
-      if (data.candidate_units.length > 0) {
-        setSelectedUnit(data.candidate_units[0]);
-      }
+      setSelectedUnit(data.candidate_units.length > 0 ? data.candidate_units[0] : null);
     } catch (err: any) {
-      console.warn('Failed to load candidate units:', err.message);
+      // A failed matcher call must not be rendered as "no units available".
+      setRecommendation(null);
+      setSelectedUnit(null);
+      setRecError(err.message || 'Unit matching service unavailable.');
     } finally {
       setIsLoadingRecs(false);
     }
@@ -107,6 +120,8 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         type: 'success'
       });
       setShowConfirmModal(false);
+      setRecommendation(null);
+      setSelectedUnit(null);
       if (onRefreshIncident) onRefreshIncident();
     } catch (err: any) {
       setActionMessage({ text: err.message, type: 'error' });
@@ -160,7 +175,7 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-400 space-y-3">
         <Activity className="w-12 h-12 text-slate-600 animate-pulse" />
-        <h3 className="text-base font-semibold text-slate-200">No Emergency Selected</h3>
+        <h2 className="text-base font-semibold text-slate-200">No Emergency Selected</h2>
         <p className="text-xs text-slate-500 max-w-xs">
           Select an emergency incident from the left triage queue to review AI extraction facts, run spatial proximity calculations, and authorize dispatch.
         </p>
@@ -349,9 +364,9 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+              <h2 className="text-xs font-bold text-white uppercase tracking-wider">
                 PostGIS Proximity &amp; Tactical Matching
-              </h4>
+              </h2>
               <p className="text-[10px] text-slate-400">
                 Ranked by geodesic distance; travel time uses a fixed 40 km/h model (not live routing)
               </p>
@@ -359,9 +374,13 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
             
             <button
               onClick={() => loadRecommendations(incident.id)}
-              disabled={isLoadingRecs}
-              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition"
-              title="Recalculate Proximity"
+              disabled={isLoadingRecs || !['ASSESSED', 'RECOMMENDED'].includes(incident.status)}
+              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 border border-slate-700 text-xs transition"
+              title={
+                ['ASSESSED', 'RECOMMENDED'].includes(incident.status)
+                  ? 'Recalculate proximity'
+                  : `Matching closed for ${incident.status} incidents`
+              }
             >
               <RotateCw className={`w-3.5 h-3.5 ${isLoadingRecs ? 'animate-spin text-rose-400' : ''}`} />
             </button>
@@ -371,6 +390,38 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
             <div className="p-4 text-center text-xs text-slate-400 space-y-2">
               <div className="w-5 h-5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <p>Executing PostGIS distance query...</p>
+            </div>
+          ) : recError ? (
+            <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-600/70 text-rose-200 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold text-rose-300">
+                <AlertTriangle className="w-4 h-4 text-rose-400" />
+                <span>UNIT MATCHING UNAVAILABLE</span>
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                The proximity service could not be reached ({recError}). No availability or ETA
+                conclusion has been drawn. Incident details remain available.
+              </p>
+              {['ASSESSED', 'RECOMMENDED'].includes(incident.status) && (
+                <button
+                  type="button"
+                  onClick={() => loadRecommendations(incident.id)}
+                  className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold transition"
+                >
+                  Retry matching
+                </button>
+              )}
+            </div>
+          ) : !['ASSESSED', 'RECOMMENDED'].includes(incident.status) ? (
+            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
+              <div className="flex items-center gap-2 font-bold text-slate-200">
+                <ShieldAlert className="w-4 h-4 text-slate-400" />
+                <span>Matching closed for this incident</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-400">
+                This incident is <span className="font-mono font-bold text-slate-200">{incident.status}</span>.
+                Unit matching is read-only once a dispatch is active or the incident is closed; the
+                assignment and status history remain in the audit ledger.
+              </p>
             </div>
           ) : recommendation && recommendation.candidate_units.length > 0 ? (
             <div className="space-y-2">
@@ -417,18 +468,25 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
                 })}
               </div>
             </div>
-          ) : (
+          ) : recommendation ? (
             <div className="p-4 rounded-lg bg-rose-950/40 border-2 border-rose-600/80 text-rose-200 text-xs space-y-2">
               <div className="flex items-center gap-2 font-bold text-rose-300 text-sm">
                 <AlertTriangle className="w-5 h-5 text-rose-400 animate-pulse" />
                 <span>CRITICAL RESOURCE SHORTAGE</span>
               </div>
               <p className="text-xs text-rose-200 font-medium leading-relaxed">
-                No units currently AVAILABLE. Mutual aid escalation required.
+                {recommendation?.rationale ||
+                  'No units currently AVAILABLE. Mutual aid escalation required.'}
               </p>
               <div className="text-[11px] text-slate-300 bg-slate-950/80 p-2 rounded border border-slate-800">
-                Contact neighboring district dispatch or mutual aid coordinator to request inter-jurisdictional ambulance / fire assistance.
+                Severity is unchanged by resource availability. Contact neighboring district
+                dispatch or a mutual aid coordinator to request inter-jurisdictional assistance.
               </div>
+            </div>
+          ) : (
+            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-400">
+              Matching has not run for this incident yet. Use the refresh control above to calculate
+              proximity; no unit is dispatched without dispatcher confirmation.
             </div>
           )}
         </div>
@@ -436,10 +494,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         {/* Human Dispatch Authorization Action */}
         {['REPORTED', 'ASSESSED', 'RECOMMENDED'].includes(incident.status) && (
           <div className="bg-gradient-to-br from-slate-950 to-rose-950/30 rounded-xl p-4 border border-rose-500/30 space-y-3">
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <h2 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <Send className="w-4 h-4 text-rose-400" />
               <span>Human Dispatch Authorization Gate</span>
-            </h4>
+            </h2>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
@@ -550,10 +608,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         {['DISPATCHED', 'ON_SCENE'].includes(incident.status) && (
           <div className="bg-slate-950 rounded-xl p-4 border border-amber-500/40 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+              <h2 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
                 <Truck className="w-4 h-4 text-amber-400" />
                 <span>Unit Deployment MDT Live Tracking</span>
-              </h4>
+              </h2>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 animate-pulse">
                 {incident.status}
               </span>

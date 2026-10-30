@@ -1,8 +1,7 @@
 import os
-import io
 import logging
 import tempfile
-from typing import Dict, Any, Tuple
+from typing import Tuple
 
 logger = logging.getLogger("smart112.multimodal.transcriber")
 

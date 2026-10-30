@@ -1,0 +1,123 @@
+[
+  {
+    "id": "inc-sample-001",
+    "incident_number": "INC-2026-0001",
+    "description": "Head-on collision near Guntur RTC bus station, two passengers trapped and unconscious, fuel leaking rapidly across road",
+    "category": "TRAFFIC_ACCIDENT",
+    "status": "ASSESSED",
+    "severity": "LEVEL_1_CRITICAL",
+    "latitude": 16.3067,
+    "longitude": 80.4365,
+    "address": "Guntur RTC Bus Station Complex, Guntur, AP",
+    "requires_human_review": true,
+    "assessment_data": {
+      "incident_type": "TRAFFIC_ACCIDENT",
+      "casualty_count": 2,
+      "hazards": ["trapped_persons", "fuel_leak"],
+      "location_markers": ["guntur", "rtc", "bus station"],
+      "missing_information": [],
+      "severity": "LEVEL_1_CRITICAL",
+      "confidence_score": 0.94,
+      "requires_human_review": true,
+      "structured_facts": {
+        "source": "deterministic_nlp_engine",
+        "extracted_markers_count": 3
+      }
+    }
+  },
+  {
+    "id": "inc-sample-002",
+    "incident_number": "INC-2026-0002",
+    "description": "Major commercial warehouse fire near Auto Nagar bypass, dense black smoke and chemical explosions reported",
+    "category": "FIRE",
+    "status": "REPORTED",
+    "severity": "LEVEL_1_CRITICAL",
+    "latitude": 16.518,
+    "longitude": 80.62,
+    "address": "Auto Nagar Industrial Bypass, Vijayawada, AP",
+    "requires_human_review": true,
+    "assessment_data": {
+      "incident_type": "FIRE",
+      "casualty_count": 0,
+      "hazards": ["fire", "smoke_inhalation", "chemical_explosion"],
+      "location_markers": ["auto nagar", "bypass", "vijayawada"],
+      "missing_information": ["Number of workers inside warehouse"],
+      "severity": "LEVEL_1_CRITICAL",
+      "confidence_score": 0.91,
+      "requires_human_review": true
+    }
+  },
+  {
+    "id": "inc-sample-003",
+    "incident_number": "INC-2026-0003",
+    "description": "Elderly patient collapsed on sidewalk, unresponsive, bystander administering chest compressions",
+    "category": "MEDICAL",
+    "status": "RECOMMENDED",
+    "severity": "LEVEL_1_CRITICAL",
+    "latitude": 16.315,
+    "longitude": 80.428,
+    "address": "Main Road, Arundelpet 3rd Line, Guntur, AP",
+    "requires_human_review": true,
+    "assessment_data": {
+      "incident_type": "MEDICAL",
+      "casualty_count": 1,
+      "hazards": ["cardiac_arrest", "unconscious"],
+      "location_markers": ["arundelpet", "main road"],
+      "missing_information": ["Patient age confirmation", "AED presence"],
+      "severity": "LEVEL_1_CRITICAL",
+      "confidence_score": 0.89,
+      "requires_human_review": true
+    }
+  },
+  {
+    "id": "inc-sample-004",
+    "incident_number": "INC-2026-0004",
+    "description": "Emergency here right now, hurry please someone is hurt",
+    "category": "GENERAL_EMERGENCY",
+    "status": "ASSESSED",
+    "severity": "LEVEL_2_HIGH",
+    "latitude": 16.32,
+    "longitude": 80.44,
+    "address": "Location coordinates only (no street landmark provided)",
+    "requires_human_review": true,
+    "assessment_data": {
+      "incident_type": "GENERAL_EMERGENCY",
+      "casualty_count": 1,
+      "hazards": [],
+      "location_markers": [],
+      "missing_information": [
+        "Specific landmark or pillar location needed",
+        "Nature of injury or emergency type unknown"
+      ],
+      "uncertainty_flags": ["INSUFFICIENT_CALLER_DATA", "MISSING_LANDMARK"],
+      "severity": "LEVEL_2_HIGH",
+      "confidence_score": 0.45,
+      "requires_human_review": true
+    }
+  },
+  {
+    "id": "inc-sample-005",
+    "incident_number": "INC-2026-0005",
+    "description": "Another bystander reporting the severe bus collision at RTC terminal gate 2, fuel still leaking",
+    "category": "TRAFFIC_ACCIDENT",
+    "status": "ASSESSED",
+    "severity": "LEVEL_1_CRITICAL",
+    "latitude": 16.3069,
+    "longitude": 80.4367,
+    "address": "RTC Bus Terminal Gate 2, Guntur, AP",
+    "requires_human_review": true,
+    "assessment_data": {
+      "incident_type": "TRAFFIC_ACCIDENT",
+      "casualty_count": 2,
+      "hazards": ["trapped_persons", "fuel_leak"],
+      "location_markers": ["rtc", "bus terminal", "gate 2"],
+      "missing_information": [],
+      "uncertainty_flags": ["POTENTIAL_DUPLICATE_REPORT"],
+      "potential_duplicate_of": "INC-2026-0001",
+      "potential_duplicate_distance_meters": 30,
+      "severity": "LEVEL_1_CRITICAL",
+      "confidence_score": 0.92,
+      "requires_human_review": true
+    }
+  }
+]

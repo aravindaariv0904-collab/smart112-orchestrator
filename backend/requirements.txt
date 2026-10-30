@@ -7,10 +7,11 @@ uvicorn[standard]>=0.28.0
 python-multipart>=0.0.9
 
 # Persistence: SQLAlchemy 2.x + PostGIS spatial support + migrations
-sqlalchemy>=2.0.28
+sqlalchemy>=2.0.28,<2.1.0
 geoalchemy2>=0.14.4
 alembic>=1.13.1
 psycopg2-binary>=2.9.9
+psycopg[binary]>=3.1.18
 
 # Settings / validation
 pydantic>=2.0

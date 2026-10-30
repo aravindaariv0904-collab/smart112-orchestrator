@@ -40,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
   availableUnitsCount
 }) => {
   return (
-    <header className="bg-slate-900 border-b border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-4 shadow-xl select-none sticky top-0 z-50">
+    <header className="bg-slate-900 border-b border-slate-800 px-3 py-2 sm:px-5 sm:py-3 flex flex-wrap items-center justify-between gap-3 sm:gap-4 shadow-xl select-none sticky top-0 z-50">
       {/* Brand & Identity */}
       <div className="flex items-center gap-3">
         <div 
@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Primary Multi-Tier View Navigation Tabs */}
-      <nav className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
+      <nav className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner max-w-full overflow-x-auto whitespace-nowrap">
         <button
           onClick={() => setActiveTab('CAD')}
           className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -108,7 +108,6 @@ export const Header: React.FC<HeaderProps> = ({
               ? 'bg-rose-600 text-white shadow-md shadow-rose-900/40'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
-          aria-label="Responder Mobile Data Terminal"
         >
           <Truck className="w-3.5 h-3.5 text-amber-400" />
           <span>Responder MDT</span>

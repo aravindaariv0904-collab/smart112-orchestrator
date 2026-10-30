@@ -53,6 +53,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
   const [sirenActive] = useState<boolean>(true);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
   const [tileError, setTileError] = useState<boolean>(false);
+  const failedTilesRef = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Synthesized siren tone is a local UI effect, not real radio audio.
@@ -130,8 +131,25 @@ export const MapPane: React.FC<MapPaneProps> = ({
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19
     });
-    tiles.on('tileerror', () => setTileError(true));
-    tiles.on('load', () => setTileError(false));
+    // Leaflet fires 'load' once every tile request settles, including failed ones.
+    // Clearing the banner on 'load' therefore hid real tile outages. Track failed
+    // tile coordinates and only clear once those same tiles later load successfully.
+    const tileKey = (event: L.TileEvent) =>
+      `${event.coords.z}/${event.coords.x}/${event.coords.y}`;
+
+    tiles.on('loading', () => {
+      failedTilesRef.current.clear();
+      setTileError(false);
+    });
+    tiles.on('tileerror', (event: L.TileEvent) => {
+      failedTilesRef.current.add(tileKey(event));
+      setTileError(true);
+    });
+    tiles.on('tileload', (event: L.TileEvent) => {
+      if (failedTilesRef.current.delete(tileKey(event)) && failedTilesRef.current.size === 0) {
+        setTileError(false);
+      }
+    });
     tiles.addTo(map);
 
     markersLayerRef.current = L.layerGroup().addTo(map);

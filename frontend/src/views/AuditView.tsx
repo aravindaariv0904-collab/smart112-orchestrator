@@ -112,6 +112,8 @@ export const AuditView: React.FC = () => {
           </div>
           <button
             onClick={fetchData}
+            aria-label="Refresh units and audit ledger"
+            title="Refresh units and audit ledger"
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all"
           >
             <RefreshCw className="w-4 h-4" />
@@ -211,6 +213,8 @@ export const AuditView: React.FC = () => {
           <select
             value={selectedIncidentId}
             onChange={(e) => setSelectedIncidentId(e.target.value)}
+            aria-label="Select incident for audit ledger"
+            title="Select incident for audit ledger"
             className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white font-mono"
           >
             {incidents.map((inc) => (

@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 
 # Critical life-threatening emergency keywords triggering LEVEL_1_CRITICAL escalation
 CRITICAL_INDICATORS = [

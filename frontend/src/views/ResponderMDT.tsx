@@ -343,10 +343,10 @@ export const ResponderMDT: React.FC<ResponderMDTProps> = ({
         <div className="lg:col-span-5 space-y-4">
           {/* Real unit data only */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400" />
               <span>Unit Record</span>
-            </h3>
+            </h2>
 
             <dl className="grid grid-cols-2 gap-3 text-xs">
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
@@ -423,10 +423,10 @@ export const ResponderMDT: React.FC<ResponderMDTProps> = ({
 
           {/* Vitals & Field Observation Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
-            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
               <HeartPulse className="w-4 h-4 text-rose-400" />
               <span>Paramedic / Officer Field Log</span>
-            </h3>
+            </h2>
 
             <label htmlFor="mdt-field-log" className="sr-only">
               Field observations

@@ -323,6 +323,8 @@ export const PublicPortal: React.FC = () => {
                   {language === 'EN' ? 'Emergency Incident Narrative *' : 'అత్యవసర వివరాలు *'}
                 </label>
                 <textarea
+                  id="public-incident-description"
+                  aria-label="Emergency incident narrative"
                   rows={4}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -339,6 +341,8 @@ export const PublicPortal: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  id="public-address"
+                  aria-label="Street address or landmark"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-red-500 transition"

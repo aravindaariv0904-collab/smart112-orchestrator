@@ -91,13 +91,17 @@ class Settings(BaseSettings):
         url = (self.SMART112_DATABASE_URL or self.DATABASE_URL or "").strip()
 
         # Heroku/Render style shorthand uses the legacy `postgres://` scheme which
-        # SQLAlchemy 2.x no longer recognizes.
+        # SQLAlchemy 2.x no longer recognizes. SQLAlchemy 2.1+ also defaults bare
+        # postgresql:// to the psycopg (v3) driver, so we normalize to explicit
+        # postgresql+psycopg2:// unless a specific DBAPI driver is already declared.
         if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://") :]
+            url = "postgresql+psycopg2://" + url[len("postgres://") :]
+        elif url.startswith("postgresql://"):
+            url = "postgresql+psycopg2://" + url[len("postgresql://") :]
 
         if not url:
             url = (
-                f"postgresql://{quote_plus(self.POSTGRES_USER)}:"
+                f"postgresql+psycopg2://{quote_plus(self.POSTGRES_USER)}:"
                 f"{quote_plus(self.POSTGRES_PASSWORD)}@"
                 f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             )

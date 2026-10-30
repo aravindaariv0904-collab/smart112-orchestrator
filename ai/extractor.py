@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from backend.app.core.config import settings
 from ai.fallback import generate_fallback_assessment

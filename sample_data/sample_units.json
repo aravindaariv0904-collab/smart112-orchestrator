@@ -1,0 +1,56 @@
+[
+  {
+    "id": "unit-sample-001",
+    "callsign": "AMB-GNT-01",
+    "unit_type": "AMBULANCE",
+    "status": "AVAILABLE",
+    "latitude": 16.3075,
+    "longitude": 80.4372,
+    "station": "Guntur Government General Hospital Station"
+  },
+  {
+    "id": "unit-sample-002",
+    "callsign": "AMB-GNT-02",
+    "unit_type": "AMBULANCE",
+    "status": "AVAILABLE",
+    "latitude": 16.312,
+    "longitude": 80.441,
+    "station": "Kothapet Trauma Center"
+  },
+  {
+    "id": "unit-sample-003",
+    "callsign": "FIRE-GNT-01",
+    "unit_type": "FIRE_TRUCK",
+    "status": "AVAILABLE",
+    "latitude": 16.301,
+    "longitude": 80.432,
+    "station": "Guntur Central Fire Station"
+  },
+  {
+    "id": "unit-sample-004",
+    "callsign": "POL-GNT-01",
+    "unit_type": "POLICE_PATROL",
+    "status": "AVAILABLE",
+    "latitude": 16.308,
+    "longitude": 80.434,
+    "station": "Arundelpet Law & Order Division"
+  },
+  {
+    "id": "unit-sample-005",
+    "callsign": "AMB-VJA-01",
+    "unit_type": "AMBULANCE",
+    "status": "AVAILABLE",
+    "latitude": 16.512,
+    "longitude": 80.615,
+    "station": "Vijayawada Auto Nagar Sub-station"
+  },
+  {
+    "id": "unit-sample-006",
+    "callsign": "FIRE-VJA-01",
+    "unit_type": "FIRE_TRUCK",
+    "status": "AVAILABLE",
+    "latitude": 16.519,
+    "longitude": 80.625,
+    "station": "Vijayawada Industrial Fire Station"
+  }
+]

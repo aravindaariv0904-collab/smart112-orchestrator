@@ -39,13 +39,13 @@ export function App() {
       setUnits(fetchedUnits);
       setDataError(null);
 
-      // Preserve or update selected incident
-      if (selectedIncident) {
-        const refreshed = fetchedIncidents.find(i => i.id === selectedIncident.id);
-        if (refreshed) setSelectedIncident(refreshed);
-      } else if (fetchedIncidents.length > 0) {
-        setSelectedIncident(fetchedIncidents[0]);
-      }
+      // Preserve the operator's selection across polls. Using a functional update
+      // avoids the stale closure captured by the interval (which always saw null)
+      // and previously snapped the detail panel back to the top incident every 5s.
+      setSelectedIncident(previous => {
+        if (!previous) return fetchedIncidents[0] ?? null;
+        return fetchedIncidents.find(incident => incident.id === previous.id) ?? null;
+      });
     } catch (err: any) {
       setDataError(err.message || 'Unable to reach the SMART 112 backend.');
     } finally {
@@ -132,9 +132,9 @@ export function App() {
       <main id="main-content" className="flex-1 min-h-0 overflow-hidden">
         {/* Tab 1: CAD Dispatch Operations Command Center */}
         {activeTab === 'CAD' && (
-          <div className="page-enter h-full grid grid-cols-1 md:grid-cols-12 gap-3 p-3 min-h-0 overflow-hidden">
+          <div className="page-enter h-full grid grid-cols-1 md:grid-cols-12 gap-3 p-3 min-h-0 overflow-y-auto md:overflow-hidden">
             {/* Left: Triage Incident Queue (3 cols) */}
-            <section className="col-span-12 md:col-span-3 h-full min-h-0 flex flex-col">
+            <section className="col-span-12 md:col-span-3 min-h-[420px] md:min-h-0 md:h-full flex flex-col">
               <IncidentList
                 incidents={incidents}
                 selectedIncident={selectedIncident}
@@ -144,7 +144,7 @@ export function App() {
             </section>
 
             {/* Center: OpenStreetMap GIS Cartography & Real-Time Moving Vehicle Telemetry (5 cols) */}
-            <section className="col-span-12 md:col-span-5 h-full min-h-0 flex flex-col">
+            <section className="col-span-12 md:col-span-5 min-h-[360px] md:min-h-0 md:h-full flex flex-col">
               <MapPane
                 incidents={incidents}
                 units={units}
@@ -155,7 +155,7 @@ export function App() {
             </section>
 
             {/* Right: AI Triage, Spatial Recommendations, and Human Dispatch Gate (4 cols) */}
-            <section className="col-span-12 md:col-span-4 h-full min-h-0 flex flex-col">
+            <section className="col-span-12 md:col-span-4 min-h-[520px] md:min-h-0 md:h-full flex flex-col">
               <IncidentDetail
                 incident={selectedIncident}
                 onRefreshIncident={loadData}

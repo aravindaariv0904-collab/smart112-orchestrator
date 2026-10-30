@@ -140,7 +140,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
         {/* Selected Picker Coordinate */}
         {selectedCoordinates && (
-          <Marker position={selectedCoordinates} icon={selectionIcon}>
+          <Marker
+            position={selectedCoordinates}
+            icon={selectionIcon}
+            title="Selected emergency intake point"
+            alt="Selected emergency intake point"
+          >
             <Popup>
               <div className="text-slate-900 font-bold">Selected Emergency Intake Point</div>
             </Popup>
@@ -153,6 +158,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             key={inc.id}
             position={[inc.latitude, inc.longitude]}
             icon={incidentIcon}
+            title={`Incident ${inc.incident_number}`}
+            alt={`Incident ${inc.incident_number}`}
           >
             <Popup>
               <div className="p-1 text-slate-900">
@@ -173,6 +180,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             key={unit.id}
             position={[unit.latitude, unit.longitude]}
             icon={getUnitIcon(unit.unit_type)}
+            title={`Unit ${unit.callsign}`}
+            alt={`Unit ${unit.callsign}`}
           >
             <Popup>
               <div className="p-1 text-slate-900">

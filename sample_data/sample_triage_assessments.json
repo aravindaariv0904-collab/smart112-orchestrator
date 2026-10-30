@@ -1,0 +1,34 @@
+{
+  "nominal_ai_assessment": {
+    "incident_type": "TRAFFIC_ACCIDENT",
+    "casualty_count": 2,
+    "hazards": ["trapped_persons", "fuel_leak"],
+    "location_markers": ["Guntur RTC", "Bus Station"],
+    "missing_information": [],
+    "severity": "LEVEL_1_CRITICAL",
+    "confidence_score": 0.95,
+    "requires_human_review": true
+  },
+  "ai_timeout_fallback_assessment": {
+    "incident_type": "UNKNOWN",
+    "casualty_count": 0,
+    "hazards": [],
+    "location_markers": [],
+    "missing_information": ["Complete call-taker manual evaluation required"],
+    "severity": "LEVEL_2_HIGH",
+    "confidence_score": 0.0,
+    "requires_human_review": true,
+    "uncertainty_flags": ["AI_CALL_TIMEOUT (>3.0s)"]
+  },
+  "insufficient_information_assessment": {
+    "incident_type": "GENERAL_EMERGENCY",
+    "casualty_count": 0,
+    "hazards": [],
+    "location_markers": [],
+    "missing_information": ["Exact address or cross street", "Caller callback number"],
+    "severity": "LEVEL_3_MODERATE",
+    "confidence_score": 0.4,
+    "requires_human_review": true,
+    "uncertainty_flags": ["INSUFFICIENT_CALLER_DATA"]
+  }
+}

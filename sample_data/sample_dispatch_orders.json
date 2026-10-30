@@ -1,0 +1,24 @@
+{
+  "valid_dispatch_approval": {
+    "incident_id": "inc-sample-001",
+    "unit_id": "unit-sample-001",
+    "dispatcher_id": "DISPATCHER_SARAH",
+    "notes": "Code Red priority deployment - multiple casualties and active fuel leak"
+  },
+  "unauthorized_dispatch_attempt": {
+    "incident_id": "inc-sample-001",
+    "unit_id": "unit-sample-001",
+    "dispatcher_id": "CITIZEN_UNAUTHORIZED_01",
+    "notes": "Attempting unverified unit deployment"
+  },
+  "unit_status_on_scene": {
+    "status": "ON_SCENE",
+    "dispatcher_id": "AMB-GNT-01",
+    "notes": "Arrived on scene, establishing triage perimeter"
+  },
+  "unit_status_resolved": {
+    "status": "AVAILABLE",
+    "dispatcher_id": "AMB-GNT-01",
+    "notes": "Patients stabilized and handed over to GGH trauma center; scene clear"
+  }
+}
