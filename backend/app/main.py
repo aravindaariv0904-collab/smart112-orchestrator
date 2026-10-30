@@ -15,6 +15,7 @@ from backend.app.api.incidents import router as incidents_router
 from backend.app.api.dispatch import router as dispatch_router
 from backend.app.api.audit import router as audit_router
 from backend.app.api.audio import router as audio_router
+from backend.app.api.auth import router as auth_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -75,6 +76,7 @@ app.include_router(incidents_router, prefix=f"{settings.API_V1_STR}/incidents", 
 app.include_router(dispatch_router, prefix=f"{settings.API_V1_STR}", tags=["Dispatch & Units"])
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit Ledger"])
 app.include_router(audio_router, prefix=f"{settings.API_V1_STR}/audio", tags=["Audio & Transcription"])
+app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication & RBAC"])
 
 
 def _probe_database() -> dict:
@@ -118,35 +120,24 @@ frontend_dist_dirs = [
     os.path.join(os.path.dirname(__file__), "../../../frontend/dist"),
     os.path.join(os.path.dirname(__file__), "../../frontend/dist"),
     os.path.join(os.getcwd(), "frontend/dist"),
-    os.path.join(os.getcwd(), "dist"),
 ]
+frontend_dist = next((d for d in frontend_dist_dirs if os.path.exists(d)), None)
 
-dist_path = None
-for candidate in frontend_dist_dirs:
-    norm_candidate = os.path.realpath(candidate)
-    if os.path.isdir(norm_candidate) and os.path.isfile(os.path.join(norm_candidate, "index.html")):
-        dist_path = norm_candidate
-        break
-
-if dist_path:
-    logger.info("Mounting static frontend assets from: %s", dist_path)
-
-    assets_dir = os.path.join(dist_path, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+if frontend_dist:
+    logger.info("Mounting static frontend assets from: %s", frontend_dist)
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        # Never intercept API, health or documentation traffic.
-        first_segment = full_path.split("/", 1)[0].lower()
+        # API, health, docs, and schema prefixes must never fall through into index.html.
+        first_segment = full_path.split("/", 1)[0]
         if first_segment in RESERVED_PATH_PREFIXES:
-            raise HTTPException(status_code=404, detail="Not Found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"API route '/{full_path}' does not exist on this server.",
+            )
 
-        # Resolve inside the distribution root only (blocks ../ path traversal).
-        file_target = os.path.realpath(os.path.join(dist_path, full_path))
-        if not (file_target == dist_path or file_target.startswith(dist_path + os.sep)):
-            raise HTTPException(status_code=404, detail="Not Found")
-
-        if os.path.isfile(file_target):
-            return FileResponse(file_target)
-        return FileResponse(os.path.join(dist_path, "index.html"))
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
