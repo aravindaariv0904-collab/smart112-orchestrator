@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
@@ -53,6 +53,7 @@ def list_units(
 @router.post("/dispatch/confirm", response_model=DispatchResponse, status_code=status.HTTP_200_OK)
 def confirm_dispatch(
     payload: DispatchConfirmationRequest,
+    x_dispatcher_token: Optional[str] = Header(None, alias="X-Dispatcher-Token"),
     db: Session = Depends(get_db),
 ):
     """
@@ -65,6 +66,7 @@ def confirm_dispatch(
         incident_id=payload.incident_id,
         unit_id=payload.unit_id,
         dispatcher_id=payload.dispatcher_id,
+        token=x_dispatcher_token,
         notes=payload.notes,
         audit_action="DISPATCH_CONFIRMED",
         default_notes="Authorized via Dispatch Gateway",
@@ -78,128 +80,127 @@ def update_unit_status(
     db: Session = Depends(get_db),
 ):
     """
-    Update the operational lifecycle state of an emergency unit
-    (DISPATCHED -> ON_SCENE -> AVAILABLE/RESOLVED).
+    Authoritative responder telemetry endpoint per ARCHITECTURE.md specification.
 
-    Releasing a unit back to AVAILABLE closes its active assignment and resolves the
-    associated incident. Every change appends an immutable AuditLog entry.
-
-    Rows are locked unit -> assignment -> incident, the same order used by
-    ``execute_dispatch``, so concurrent dispatch and field updates cannot deadlock.
+    Applies the unit/incident state-machine rules atomically. Row locking prevents a
+    race where two operators (or an automated poll) transition a unit concurrently.
     """
-    unit = for_update(db.query(EmergencyUnit).filter(EmergencyUnit.id == id), db).first()
-    if not unit:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency unit not found.")
+    normalized_status = payload.status.upper()
+    if normalized_status == "RESOLVED":
+        normalized_status = "AVAILABLE"
 
-    target_status = (payload.status or "").strip().upper()
-    if target_status not in VALID_UNIT_STATUSES:
+    if normalized_status not in VALID_UNIT_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Invalid unit status '{target_status}'. "
-                f"Permitted statuses are: {', '.join(sorted(VALID_UNIT_STATUSES))}."
+                f"Invalid unit status '{payload.status}'. Permitted values are: "
+                f"{', '.join(sorted(VALID_UNIT_STATUSES))}."
             ),
         )
 
-    actor = sanitize_actor_id(payload.dispatcher_id)
-    previous_status = unit.status
+    # Lock unit first, matching the lock order in execute_dispatch to prevent deadlocks.
+    unit = for_update(db.query(EmergencyUnit).filter(EmergencyUnit.id == id), db).first()
+    if not unit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Emergency unit with ID '{id}' not found.",
+        )
 
-    # Locate the active assignment for this unit (if any).
-    active_assignment = for_update(
-        db.query(DispatchAssignment).filter(
+    # Unit cannot be set to DISPATCHED or ON_SCENE without a pre-existing assignment.
+    # Allowing that would create "ghost" dispatches with no incident attached.
+    active_assignment = (
+        db.query(DispatchAssignment)
+        .filter(
             DispatchAssignment.unit_id == unit.id,
             DispatchAssignment.status.in_(ACTIVE_ASSIGNMENT_STATUSES),
-        ),
-        db,
-    ).order_by(DispatchAssignment.timestamp.desc()).first()
+        )
+        .order_by(DispatchAssignment.timestamp.desc())
+        .first()
+    )
 
-    # A unit cannot be moved into a busy state unless it actually holds a task.
-    # Without this guard a stale MDT tap could mark an idle ambulance ON_SCENE and
-    # silently strand it (no assignment exists to ever clear it again).
-    if target_status in ASSIGNMENT_REQUIRED_STATUSES and not active_assignment:
+    if normalized_status in ASSIGNMENT_REQUIRED_STATUSES and not active_assignment:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Unit {unit.callsign} has no active dispatch assignment and cannot be "
-                f"moved to '{target_status}'."
+                f"Unit {unit.callsign} has no active dispatch assignment. A unit cannot "
+                f"transition to '{normalized_status}' without an authorized dispatch order."
             ),
         )
 
-    associated_incident = None
+    # Check whether an active assignment should mirror this unit status update onto its incident.
+    incident = None
     if active_assignment:
-        associated_incident = for_update(
+        incident = for_update(
             db.query(Incident).filter(Incident.id == active_assignment.incident_id), db
         ).first()
-    audit_incident_id = associated_incident.id if associated_incident else "NO_ACTIVE_INCIDENT"
 
-    skipped_transition = None
+    old_status = unit.status
+    unit.status = normalized_status
+    unit.updated_at = datetime.now(timezone.utc)
 
-    # Apply the unit + assignment + incident transitions.
-    if target_status == "ON_SCENE":
-        unit.status = "ON_SCENE"
-        active_assignment.status = "ON_SCENE"
-        if not active_assignment.on_scene_at:
-            active_assignment.on_scene_at = datetime.now(timezone.utc)
-        if associated_incident:
+    # Synchronise the attached incident with the field unit's lifecycle.
+    incident_state_changed = False
+    old_incident_status = None
+    new_incident_status = None
+    if incident:
+        old_incident_status = incident.status
+        if normalized_status == "ON_SCENE" and incident.status == "DISPATCHED":
             try:
-                validate_state_transition(associated_incident.status, "ON_SCENE")
-                associated_incident.status = "ON_SCENE"
+                validate_state_transition(incident.status, "ON_SCENE")
+                incident.status = "ON_SCENE"
+                new_incident_status = "ON_SCENE"
+                active_assignment.status = "ON_SCENE"
+                incident_state_changed = True
             except InvalidStateTransitionError as exc:
-                skipped_transition = str(exc)
-                logger.warning(
-                    "Incident transition skipped for unit %s: %s", unit.callsign, exc
-                )
-
-    elif target_status in ("AVAILABLE", "RESOLVED"):
-        unit.status = "AVAILABLE"
-        if active_assignment:
-            active_assignment.status = "COMPLETED"
-            if not active_assignment.cleared_at:
-                active_assignment.cleared_at = datetime.now(timezone.utc)
-        if associated_incident:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        elif normalized_status == "AVAILABLE" and incident.status in ("DISPATCHED", "ON_SCENE"):
             try:
-                validate_state_transition(associated_incident.status, "RESOLVED")
-                associated_incident.status = "RESOLVED"
+                validate_state_transition(incident.status, "RESOLVED")
+                incident.status = "RESOLVED"
+                new_incident_status = "RESOLVED"
+                active_assignment.status = "COMPLETED"
+                incident_state_changed = True
             except InvalidStateTransitionError as exc:
-                skipped_transition = str(exc)
-                logger.warning(
-                    "Incident transition skipped for unit %s: %s", unit.callsign, exc
-                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    else:  # DISPATCHED (manual override / re-task of a live assignment)
-        unit.status = "DISPATCHED"
-        active_assignment.status = "DISPATCHED"
+    actor = sanitize_actor_id(payload.dispatcher_id or unit.callsign)
+    resolved_notes = payload.notes or f"Unit status updated from {old_status} to {normalized_status}"
 
-    db.add(
-        AuditLog(
-            incident_id=audit_incident_id,
-            actor=actor,
-            action=f"UNIT_STATUS_{target_status}",
-            details=json.dumps(
-                {
-                    "unit_id": unit.id,
-                    "callsign": unit.callsign,
-                    "previous_status": previous_status,
-                    "new_status": unit.status,
-                    "assignment_id": active_assignment.id if active_assignment else None,
-                    "incident_status": associated_incident.status if associated_incident else None,
-                    "skipped_transition": skipped_transition,
-                    "notes": payload.notes,
-                }
-            ),
+    if incident:
+        db.add(
+            AuditLog(
+                incident_id=incident.id,
+                actor=actor,
+                action=f"UNIT_STATUS_{normalized_status}",
+                details=json.dumps(
+                    {
+                        "unit_id": unit.id,
+                        "callsign": unit.callsign,
+                        "old_status": old_status,
+                        "new_status": normalized_status,
+                        "incident_state_changed": incident_state_changed,
+                        "old_incident_status": old_incident_status,
+                        "new_incident_status": new_incident_status,
+                        "notes": resolved_notes,
+                    }
+                ),
+            )
         )
+
+    db.commit()
+
+    logger.info(
+        "Unit %s transitioned %s -> %s (actor=%s, incident=%s)",
+        unit.callsign,
+        old_status,
+        normalized_status,
+        actor,
+        incident.incident_number if incident else "none",
     )
 
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    db.refresh(unit)
-
     return {
+        "status": "success",
         "unit": unit.to_dict(),
-        "incident_status": associated_incident.status if associated_incident else None,
-        "message": f"Unit {unit.callsign} updated from {previous_status} to {unit.status}.",
+        "incident_status": incident.status if incident else None,
+        "incident_state_changed": incident_state_changed,
     }

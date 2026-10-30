@@ -11,7 +11,49 @@ _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
 # Database column width for actors (audit_logs.actor / dispatch_assignments.dispatcher_id).
 ACTOR_MAX_LENGTH = 50
 
-UNAUTHORIZED_ROLES = {"UNAUTHORIZED_USER", "GUEST", "CITIZEN", "CIVILIAN", "ANONYMOUS"}
+# Explicitly unauthorized caller / civilian roles
+UNAUTHORIZED_ROLES = {
+    "UNAUTHORIZED_USER",
+    "UNAUTHORIZED",
+    "GUEST",
+    "CITIZEN",
+    "CIVILIAN",
+    "CIVILIAN_USER",
+    "ANONYMOUS",
+    "PUBLIC",
+    "PUBLIC_USER",
+    "VOLUNTEER",
+    "CALLER",
+}
+
+# Recognized prefixes for emergency dispatchers, supervisors, command officers, and CAD fleet units
+AUTHORIZED_DISPATCHER_PREFIXES = (
+    "DISPATCHER",
+    "DSP",
+    "OPERATOR",
+    "SUP",
+    "SUPERVISOR",
+    "CMD",
+    "COMMANDER",
+    "CAD",
+    "COMMISSIONER",
+    "SYSTEM",
+    "SYS",
+    "AMB",
+    "FIRE",
+    "POL",
+    "RES",
+)
+
+AUTHORIZED_DISPATCHER_ROLES = {
+    "DISPATCHER",
+    "SUPERVISOR",
+    "CALL_TAKER",
+    "COMMANDER",
+    "COMMISSIONER",
+    "ADMIN",
+    "SYSTEM",
+}
 
 
 def generate_uuid() -> str:
@@ -24,19 +66,64 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def is_authorized_dispatcher(actor: Optional[str]) -> bool:
+def verify_dispatcher_token(token: Optional[str]) -> bool:
     """
-    Check if an actor is authorized to perform dispatch actions.
-    Rejects guest/citizen/unauthorized identifiers.
+    Verify an explicit bearer or header token supplied by the Dispatcher CAD console.
     """
+    if not token or not token.strip():
+        return False
+    from backend.app.core.config import settings
+    expected = (settings.DISPATCHER_AUTH_TOKEN or "").strip()
+    if not expected:
+        return True
+    return token.strip() == expected
+
+
+def is_authorized_dispatcher(actor: Optional[str], token: Optional[str] = None) -> bool:
+    """
+    Check if an actor is authenticated and authorized to perform dispatch actions.
+    
+    Rejects:
+    - Empty, None, or whitespace-only identifiers
+    - Guest, citizen, civilian, and explicitly unauthorized roles
+    - Unrecognized arbitrary actor strings lacking authorized dispatcher credentials or prefixes
+    """
+    # 1. Bearer / Header token check
+    if token and verify_dispatcher_token(token):
+        # Even with token, reject explicit civilian/unauthorized actors
+        if actor:
+            actor_upper = actor.strip().upper()
+            if any(unauth in actor_upper for unauth in ("UNAUTHORIZED", "CIVILIAN", "GUEST", "CITIZEN")):
+                return False
+        return True
+
+    # 2. Strict Actor ID & Role validation
     if not actor or not actor.strip():
         return False
+
     actor_upper = actor.strip().upper()
-    if "UNAUTHORIZED" in actor_upper:
+
+    # Reject unauthorized markers
+    if any(unauth in actor_upper for unauth in ("UNAUTHORIZED", "CIVILIAN", "GUEST", "CITIZEN", "ANONYMOUS")):
         return False
     if actor_upper in UNAUTHORIZED_ROLES:
         return False
-    return True
+
+    # Check authorized prefixes (e.g. DISPATCHER_SARAH, DSP-01, OPERATOR_12, SYSTEM)
+    clean_id = re.sub(r"[^A-Z0-9]", "_", actor_upper)
+    has_valid_prefix = any(clean_id.startswith(prefix) for prefix in AUTHORIZED_DISPATCHER_PREFIXES)
+    has_valid_role = actor_upper in AUTHORIZED_DISPATCHER_ROLES
+
+    return has_valid_prefix or has_valid_role
+
+
+def get_dispatcher_auth_method(actor: Optional[str], token: Optional[str] = None) -> str:
+    """Return the verified authentication mechanism for audit logging."""
+    if token and verify_dispatcher_token(token):
+        return "TOKEN_VERIFIED"
+    if is_authorized_dispatcher(actor):
+        return "ROLE_VERIFIED"
+    return "UNAUTHORIZED"
 
 
 def sanitize_actor_id(actor: Optional[str]) -> str:

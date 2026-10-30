@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 from urllib.parse import quote_plus
 
@@ -6,30 +7,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "SMART 112 Orchestration Platform"
+    PROJECT_NAME: str = "SMART 112"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
 
-    # Database Settings
+    # PostgreSQL / PostGIS configuration
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "smart112"
     POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_POOL_SIZE: int = 5
-    POSTGRES_MAX_OVERFLOW: int = 10
-    POSTGRES_CONNECT_TIMEOUT: int = 3
+    POSTGRES_PORT: str = "5432"
+    POSTGRES_DB: str = "smart112"
+    POSTGRES_POOL_SIZE: int = 10
+    POSTGRES_MAX_OVERFLOW: int = 20
+    POSTGRES_CONNECT_TIMEOUT: int = 5
 
     # Project-scoped DSN override. Takes precedence over the generic DATABASE_URL so
     # an unrelated machine-wide DATABASE_URL (common on shared dev machines) cannot
-    # silently hijack this service's database.
+    # redirect SMART 112 migrations/tests into an arbitrary local PostgreSQL database.
     SMART112_DATABASE_URL: Optional[str] = Field(
         default=None,
-        description="Project-scoped SQLAlchemy DSN; highest priority.",
+        description="Explicit DSN override for SMART 112. Highest priority.",
     )
 
-    # Explicit DSN override. When omitted it is assembled from the POSTGRES_* fields
-    # so that overriding a single credential can never leave a stale DSN behind.
+    # Standard database URL (used by Docker Compose, Render, Heroku, etc.)
     DATABASE_URL: Optional[str] = Field(
         default=None,
         description="Full SQLAlchemy DSN. Defaults to postgresql://<user>:<pass>@<host>:<port>/<db>.",
@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     # Whisper STT configuration
     WHISPER_DEVICE: str = "cuda"
+    SIMULATE_STT_FOR_TESTS: bool = True
+
+    # Dispatcher security credentials & tokens
+    DISPATCHER_AUTH_TOKEN: str = "smart112-dispatch-key-2026"
 
     # CORS Origins (comma-separated or list)
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
@@ -75,13 +79,10 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
-        case_sensitive=False,
     )
 
     @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
     def _coerce_cors_origins(cls, value):
-        """Accept both `a,b` strings and JSON/inline lists from the environment."""
         if isinstance(value, (list, tuple, set)):
             return ",".join(str(item) for item in value)
         return value

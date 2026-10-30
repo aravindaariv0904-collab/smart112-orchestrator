@@ -4,6 +4,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from ai.extractor import extract_emergency_facts
+from ai.fallback import generate_fallback_assessment
 from backend.app.core.config import settings
 from multimodal.transcriber import transcribe_audio_file
 
@@ -12,7 +13,7 @@ router = APIRouter()
 
 # Container magic numbers accepted for the supported audio formats.
 AUDIO_MAGIC_PREFIXES = (
-    b"RIFF",  # WAV / AVI container (WAV verified below by extension+mime)
+    b"RIFF",  # WAV / AVI container
     b"ID3",  # MP3 with ID3 tag
     b"OggS",  # OGG / Opus
     b"fLaC",  # FLAC
@@ -58,7 +59,7 @@ async def transcribe_emergency_audio(file: UploadFile = File(...)):
     Ingest raw emergency call audio (.wav, .mp3, .ogg).
 
     Enforces the 15 MB upload ceiling and strict MIME/container validation, then runs
-    speech-to-text plus AI fact extraction.
+    speech-to-text plus AI fact extraction with safe, non-crashing failure handling.
     """
     if not file or not file.filename:
         raise HTTPException(
@@ -94,23 +95,45 @@ async def transcribe_emergency_audio(file: UploadFile = File(...)):
 
     # Transcription is CPU-bound: keep the event loop free for live dispatch traffic.
     try:
-        transcript, language, confidence = await run_in_threadpool(
-            transcribe_audio_file, content, file.filename
-        )
+        res = await run_in_threadpool(transcribe_audio_file, content, file.filename)
+        if len(res) == 4:
+            transcript, language, confidence, stt_status = res
+        else:
+            transcript, language, confidence = res[:3]
+            stt_status = "SUCCESS" if transcript else "NO_SPEECH_DETECTED"
     except Exception as exc:
         logger.error("STT processing failure: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Speech-to-text transcription engine failed to process audio.",
-        )
+        transcript, language, confidence, stt_status = "", "unknown", 0.0, "STT_ERROR"
 
-    extracted_facts = await extract_emergency_facts(transcript)
+    # Safe audio transcription failure handling:
+    # If transcription failed or returned no speech, do not throw a 500 server crash!
+    # Generate fallback facts and flag for human review so operators can listen manually.
+    if stt_status not in ("SUCCESS", "SIMULATED_TEST") or not transcript.strip():
+        display_transcript = (
+            f"[Automated transcription {stt_status.lower().replace('_', ' ')}. "
+            f"Audio preserved for manual operator verification.]"
+        )
+        extracted_facts = generate_fallback_assessment(
+            display_transcript,
+            f"AUDIO_STT_{stt_status}",
+        )
+        uncertainty = list(extracted_facts.get("uncertainty_flags", []))
+        flag = f"AUDIO_{stt_status}"
+        if flag not in uncertainty:
+            uncertainty.append(flag)
+        extracted_facts["uncertainty_flags"] = uncertainty
+        extracted_facts["requires_human_review"] = True
+    else:
+        display_transcript = transcript
+        extracted_facts = await extract_emergency_facts(transcript)
 
     return {
         "filename": file.filename,
         "size_bytes": len(content),
-        "transcript": transcript,
+        "transcription_status": stt_status,
+        "transcript": display_transcript,
         "language": language,
-        "stt_confidence": confidence,
+        "stt_confidence": round(confidence, 2),
         "extracted_facts": extracted_facts,
+        "requires_human_review": extracted_facts.get("requires_human_review", True),
     }

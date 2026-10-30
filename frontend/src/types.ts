@@ -1,9 +1,3 @@
-export type SeverityLevel = 
-  | 'LEVEL_1_CRITICAL'
-  | 'LEVEL_2_HIGH'
-  | 'LEVEL_3_MODERATE'
-  | 'LEVEL_4_LOW';
-
 export type IncidentStatus = 
   | 'REPORTED'
   | 'ASSESSED'
@@ -13,10 +7,17 @@ export type IncidentStatus =
   | 'RESOLVED'
   | 'CANCELLED';
 
+export type SeverityLevel = 
+  | 'LEVEL_1_CRITICAL'
+  | 'LEVEL_2_HIGH'
+  | 'LEVEL_3_MODERATE'
+  | 'LEVEL_4_LOW';
+
 export type UnitType = 
   | 'AMBULANCE'
   | 'FIRE_TRUCK'
-  | 'POLICE_PATROL';
+  | 'POLICE_PATROL'
+  | 'RESCUE_SQUAD';
 
 export type UnitStatus = 
   | 'AVAILABLE'
@@ -67,7 +68,10 @@ export interface CandidateUnit {
   callsign: string;
   type: UnitType;
   distance_km: number;
+  road_distance_km?: number;
   eta_minutes: number;
+  eta_basis?: string;
+  eta_confidence?: string;
   status: UnitStatus;
   station?: string;
   latitude: number;
@@ -78,6 +82,8 @@ export interface RecommendationResponse {
   incident_id: string;
   candidate_units: CandidateUnit[];
   rationale: string;
+  location_status?: string;
+  resource_deficit?: boolean;
 }
 
 export interface EmergencyUnit {
@@ -103,8 +109,10 @@ export interface AuditRecord {
 export interface AudioTranscribeResult {
   filename: string;
   size_bytes: number;
+  transcription_status?: string;
   transcript: string;
   language: string;
   stt_confidence: number;
   extracted_facts: ExtractedFacts;
+  requires_human_review?: boolean;
 }

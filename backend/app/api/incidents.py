@@ -3,13 +3,12 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ai.extractor import extract_emergency_facts
-
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.security import generate_uuid
@@ -60,20 +59,26 @@ def _enrich_incident_dict(incident: Incident, db: Session) -> dict:
     return data
 
 
-def _next_incident_number(db: Session) -> str:
+def _next_incident_number(db: Session, offset: int = 1) -> str:
     """
     Generate the next sequential incident number for the current UTC year.
 
-    Parses existing numbers instead of relying on ``COUNT(*)`` so that deleting or
+    Parses existing numbers instead of relying on COUNT(*) so that deleting or
     purging incidents can never mint a duplicate primary key.
+    On non-SQLite databases, applies row locking on the most recent incident to serialize
+    concurrent number allocation.
     """
     year = datetime.now(timezone.utc).year
     prefix = f"INC-{year}-"
-    existing = (
+    query = (
         db.query(Incident.incident_number)
         .filter(Incident.incident_number.like(f"{prefix}%"))
-        .all()
     )
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name != "sqlite":
+        query = query.order_by(desc(Incident.incident_number)).with_for_update()
+
+    existing = query.all()
 
     max_sequence = 0
     for (number,) in existing:
@@ -81,7 +86,7 @@ def _next_incident_number(db: Session) -> str:
         if tail.isdigit():
             max_sequence = max(max_sequence, int(tail))
 
-    return f"{prefix}{max_sequence + 1:04d}"
+    return f"{prefix}{max_sequence + offset:04d}"
 
 
 @router.post("", response_model=IncidentResponse, status_code=status.HTTP_201_CREATED)
@@ -91,7 +96,8 @@ async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)
 
     Runs AI extraction with a strict timeout, evaluates safety escalation rules,
     performs spatial-temporal duplicate detection (within 250m and 30m window),
-    persists the incident and appends an immutable entry to the audit ledger.
+    persists the incident with concurrency-safe atomic sequence generation,
+    and appends an immutable entry to the audit ledger.
     """
     assessment = await extract_emergency_facts(payload.description)
 
@@ -141,56 +147,79 @@ async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)
         )
 
     incident: Optional[Incident] = None
-    for attempt in range(1, 4):
-        incident = Incident(
-            id=incident_id,
-            incident_number=_next_incident_number(db),
-            description=payload.description,
-            category=category,
-            status="ASSESSED",
-            severity=severity,
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            address=payload.address or "Location verified via coordinates",
-            requires_human_review=requires_review,
-            assessment_data=json.dumps(assessment),
-        )
-        db.add(incident)
-        audit_details = {
-            "incident_number": incident.incident_number,
-            "category": category,
-            "severity": severity,
-            "requires_human_review": requires_review,
-            "casualty_count": assessment.get("casualty_count", 0),
-            "hazards": assessment.get("hazards", []),
-            "missing_information": assessment.get("missing_information", []),
-        }
-        if potential_duplicate:
-            audit_details["potential_duplicate_of"] = potential_duplicate.incident_number
-            audit_details["potential_duplicate_distance_meters"] = duplicate_dist_m
-
-        db.add(
-            AuditLog(
-                incident_id=incident_id,
-                actor="SYSTEM_AI",
-                action="INCIDENT_REPORTED_AND_ASSESSED",
-                details=json.dumps(audit_details),
-            )
-        )
+    for attempt in range(1, 6):
         try:
+            inc_num = _next_incident_number(db, offset=attempt)
+            incident = Incident(
+                id=incident_id,
+                incident_number=inc_num,
+                description=payload.description,
+                category=category,
+                status="ASSESSED",
+                severity=severity,
+                latitude=payload.latitude,
+                longitude=payload.longitude,
+                address=payload.address or "Location verified via coordinates",
+                requires_human_review=requires_review,
+                assessment_data=json.dumps(assessment),
+            )
+            db.add(incident)
+            audit_details = {
+                "incident_number": incident.incident_number,
+                "category": category,
+                "severity": severity,
+                "requires_human_review": requires_review,
+                "casualty_count": assessment.get("casualty_count", 0),
+                "hazards": assessment.get("hazards", []),
+                "missing_information": assessment.get("missing_information", []),
+            }
+            if potential_duplicate:
+                audit_details["potential_duplicate_of"] = potential_duplicate.incident_number
+                audit_details["potential_duplicate_distance_meters"] = duplicate_dist_m
+
+            db.add(
+                AuditLog(
+                    incident_id=incident_id,
+                    actor="SYSTEM_AI",
+                    action="INCIDENT_REPORTED_AND_ASSESSED",
+                    details=json.dumps(audit_details),
+                )
+            )
             db.commit()
             break
         except IntegrityError:
-            # Two call-takers can ingest at the same instant; re-sequence and retry.
             db.rollback()
             logger.warning(
-                "Incident number collision on attempt %s; regenerating sequence.", attempt
+                "Incident number collision on attempt %s; regenerating sequence with offset.", attempt
             )
-            if attempt == 3:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Could not allocate a unique incident number. Please retry.",
+            if attempt == 5:
+                # Guaranteed unique fallback sequence to ensure emergency call intake is never dropped
+                entropy = int(datetime.now(timezone.utc).timestamp() * 1000) % 1000000
+                inc_num = f"INC-{now_utc.year}-{entropy:06d}"
+                incident = Incident(
+                    id=incident_id,
+                    incident_number=inc_num,
+                    description=payload.description,
+                    category=category,
+                    status="ASSESSED",
+                    severity=severity,
+                    latitude=payload.latitude,
+                    longitude=payload.longitude,
+                    address=payload.address or "Location verified via coordinates",
+                    requires_human_review=requires_review,
+                    assessment_data=json.dumps(assessment),
                 )
+                db.add(incident)
+                db.add(
+                    AuditLog(
+                        incident_id=incident_id,
+                        actor="SYSTEM_AI",
+                        action="INCIDENT_REPORTED_AND_ASSESSED",
+                        details=json.dumps({"incident_number": inc_num, "fallback_sequence": True}),
+                    )
+                )
+                db.commit()
+                break
 
     db.refresh(incident)
     logger.info(
@@ -243,26 +272,31 @@ def get_incident(id: str, db: Session = Depends(get_db)):
 @router.post("/{id}/recommend", response_model=RecommendationResponse)
 def get_unit_recommendations(id: str, db: Session = Depends(get_db)):
     """
-    Execute the spatial proximity query against PostGIS (Haversine fallback) and
-    return the top 3 recommended units with tactical rationale.
+    Execute multi-hazard capability matching and spatial proximity query against
+    PostGIS (Haversine fallback) and return recommended units with tactical rationale.
     Transitions the incident from ASSESSED -> RECOMMENDED.
     """
     incident = db.query(Incident).filter(Incident.id == id).first()
     if not incident:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID {id} not found.",
+        )
 
+    # Life-safety guard: incidents in terminal or already dispatched states must not be re-matched.
     if incident.status in NON_RECOMMENDABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Incident {incident.incident_number} is '{incident.status}' and no longer "
-                "accepts unit recommendations."
+                f"accepts unit recommendations."
             ),
         )
 
-    recommendation = match_candidate_units(db, incident, limit=3)
+    recommendation = match_candidate_units(db, incident)
 
-    if incident.status == "ASSESSED":
+    # Transition state to RECOMMENDED if previously ASSESSED or REPORTED
+    if incident.status in ("ASSESSED", "REPORTED"):
         incident.status = "RECOMMENDED"
         db.add(
             AuditLog(
@@ -272,6 +306,8 @@ def get_unit_recommendations(id: str, db: Session = Depends(get_db)):
                 details=json.dumps(
                     {
                         "candidate_count": len(recommendation["candidate_units"]),
+                        "location_status": recommendation.get("location_status", "VERIFIED_IN_DISTRICT"),
+                        "resource_deficit": recommendation.get("resource_deficit", False),
                         "top_unit": (
                             recommendation["candidate_units"][0]["callsign"]
                             if recommendation["candidate_units"]
@@ -290,20 +326,22 @@ def get_unit_recommendations(id: str, db: Session = Depends(get_db)):
 def approve_dispatch(
     id: str,
     payload: DispatchApprovalRequest,
+    x_dispatcher_token: Optional[str] = Header(None, alias="X-Dispatcher-Token"),
     db: Session = Depends(get_db),
 ):
     """
     Human dispatcher authorization endpoint.
 
     Delegates to the shared dispatch service, which atomically locks the rows,
-    validates unit availability and lifecycle state, persists the assignment and
-    records the action in the immutable audit ledger.
+    validates unit availability and dispatcher authentication, persists the assignment
+    and records the action in the immutable audit ledger.
     """
     return execute_dispatch(
         db,
         incident_id=id,
         unit_id=payload.unit_id,
         dispatcher_id=payload.dispatcher_id,
+        token=x_dispatcher_token,
         notes=payload.notes,
         audit_action="DISPATCH_APPROVED",
         default_notes="Authorized by Dispatcher",

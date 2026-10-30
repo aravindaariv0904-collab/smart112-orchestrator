@@ -11,7 +11,10 @@ class CandidateUnit(BaseModel):
     callsign: str
     type: str
     distance_km: float
+    road_distance_km: Optional[float] = None
     eta_minutes: float
+    eta_basis: Optional[str] = "URBAN_40KMH_LIGHTS_SIRENS"
+    eta_confidence: Optional[str] = None
     status: str
     station: Optional[str] = None
     latitude: float
@@ -22,6 +25,8 @@ class RecommendationResponse(BaseModel):
     incident_id: str
     candidate_units: List[CandidateUnit]
     rationale: str
+    location_status: Optional[str] = "VERIFIED_IN_DISTRICT"
+    resource_deficit: Optional[bool] = False
 
 
 class DispatchApprovalRequest(BaseModel):
@@ -50,27 +55,24 @@ class DispatchConfirmationRequest(BaseModel):
 
     @field_validator("incident_id", "unit_id", "dispatcher_id", "notes", mode="before")
     @classmethod
-    def sanitize_confirm_inputs(cls, value):
+    def sanitize_confirmation_inputs(cls, value):
         return sanitize_text(value, max_length=1000)
 
 
 class DispatchResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     dispatch_id: str
     incident_id: str
     unit_id: str
-    dispatcher_id: str
     status: str
-    timestamp: Union[str, datetime]
     notes: Optional[str] = None
+    assigned_unit: dict
 
 
 class UnitStatusUpdate(BaseModel):
     status: str = Field(
         ...,
+        description="New lifecycle state: AVAILABLE, DISPATCHED, ON_SCENE, or RESOLVED.",
         max_length=50,
-        description="Target status: AVAILABLE, DISPATCHED, ON_SCENE, RESOLVED",
     )
     dispatcher_id: Optional[str] = Field(default="SYSTEM", max_length=ACTOR_MAX_LENGTH)
     notes: Optional[str] = Field(default=None, max_length=1000)

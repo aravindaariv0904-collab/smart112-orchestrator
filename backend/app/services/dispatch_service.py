@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.security import (
     generate_uuid,
+    get_dispatcher_auth_method,
     is_authorized_dispatcher,
     sanitize_actor_id,
 )
@@ -42,9 +43,10 @@ def execute_dispatch(
     incident_id: str,
     unit_id: str,
     dispatcher_id: str,
-    notes: Optional[str],
-    audit_action: str,
-    default_notes: str,
+    token: Optional[str] = None,
+    notes: Optional[str] = None,
+    audit_action: str = "DISPATCH_APPROVED",
+    default_notes: str = "Authorized by Dispatcher",
 ) -> dict:
     """
     Single authoritative dispatch routine shared by every dispatch entry point.
@@ -56,7 +58,7 @@ def execute_dispatch(
     ``update_unit_status``; a different order would allow a deadlock between a
     dispatcher confirming a new assignment and a field unit reporting on scene.
     """
-    if not is_authorized_dispatcher(dispatcher_id):
+    if not is_authorized_dispatcher(dispatcher_id, token=token):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Actor '{dispatcher_id}' is not authorized to dispatch emergency units.",
@@ -91,6 +93,7 @@ def execute_dispatch(
     dispatcher = sanitize_actor_id(dispatcher_id)
     dispatch_id = generate_uuid()
     resolved_notes = notes or default_notes
+    auth_method = get_dispatcher_auth_method(dispatcher_id, token=token)
 
     unit.status = "DISPATCHED"
     incident.status = "DISPATCHED"
@@ -116,6 +119,7 @@ def execute_dispatch(
                     "unit_id": unit.id,
                     "callsign": unit.callsign,
                     "unit_type": unit.unit_type,
+                    "auth_method": auth_method,
                     # Persist the effective note, otherwise an audit reader cannot tell
                     # that a default was applied.
                     "notes": resolved_notes,
@@ -129,17 +133,25 @@ def execute_dispatch(
         db.commit()
     except IntegrityError as exc:  # pragma: no cover - defensive against concurrent writers
         db.rollback()
-        logger.error("Dispatch commit failed for incident %s: %s", incident_id, exc)
+        logger.error("Concurrent dispatch conflict for unit %s: %s", unit.callsign, exc)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Dispatch conflict detected. Reload the incident and retry.",
+            detail=f"Unit {unit.callsign} was claimed by another dispatcher mid-transaction.",
         )
 
-    db.refresh(assignment)
     logger.info(
-        "Unit %s dispatched to incident %s by %s.",
+        "Unit %s dispatched to incident %s by %s (auth=%s).",
         unit.callsign,
         incident.incident_number,
         dispatcher,
+        auth_method,
     )
-    return assignment.to_dict()
+
+    return {
+        "dispatch_id": dispatch_id,
+        "incident_id": incident.id,
+        "unit_id": unit.id,
+        "status": "DISPATCHED",
+        "notes": resolved_notes,
+        "assigned_unit": unit.to_dict(),
+    }

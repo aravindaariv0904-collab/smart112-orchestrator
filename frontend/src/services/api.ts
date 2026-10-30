@@ -12,6 +12,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const url = `${API_BASE}${endpoint}`;
   const headers = {
     'Content-Type': 'application/json',
+    'X-Dispatcher-Token': 'smart112-dispatch-key-2026',
     ...(options.headers || {})
   };
 
@@ -98,7 +99,7 @@ export const api = {
   async updateUnitStatus(
     unitId: string, 
     status: string, 
-    dispatcherId: string = 'DISPATCHER_SARAH', 
+    dispatcherId: string = 'DISPATCHER_SARAH',
     notes?: string
   ): Promise<any> {
     return request(`/units/${unitId}/status`, {
@@ -106,34 +107,43 @@ export const api = {
       body: JSON.stringify({
         status,
         dispatcher_id: dispatcherId,
-        notes
+        notes: notes || `Unit status updated to ${status}`
       })
     });
   },
 
-  async getAuditTrail(incidentId: string): Promise<AuditRecord[]> {
+  async getAuditLog(incidentId: string): Promise<AuditRecord[]> {
     return request<AuditRecord[]>(`/audit/${incidentId}`);
   },
 
-  async transcribeAudio(file: File): Promise<AudioTranscribeResult> {
+  async getAuditTrail(incidentId: string): Promise<AuditRecord[]> {
+    return this.getAuditLog(incidentId);
+  },
+
+  async uploadAudio(file: File): Promise<AudioTranscribeResult> {
     const formData = new FormData();
     formData.append('file', file);
 
     const response = await fetch(`${API_BASE}/audio/transcribe`, {
       method: 'POST',
-      body: formData
+      body: formData,
     });
 
     if (!response.ok) {
-      let msg = `Upload failed with status ${response.status}`;
+      let errorDetail = `Audio upload failed (${response.status})`;
       try {
-        const err = await response.json();
-        if (err.detail) msg = err.detail;
-      } catch {}
-      throw new Error(msg);
+        const errorJson = await response.json();
+        if (errorJson.detail) errorDetail = errorJson.detail;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorDetail);
     }
 
     return response.json();
+  },
+
+  async transcribeAudio(file: File): Promise<AudioTranscribeResult> {
+    return this.uploadAudio(file);
   }
 };
-
