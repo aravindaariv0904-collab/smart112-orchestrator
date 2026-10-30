@@ -101,6 +101,16 @@ describe('IncidentDetail', () => {
     expect(screen.getByText(/matcher timeout/)).toBeInTheDocument();
   });
 
+  it('renders caller voice guidance and follow-up question widgets', async () => {
+    render(<IncidentDetail incident={assessedIncident} />);
+    expect(screen.getByText(/Caller Voice Guidance Advisory/i)).toBeInTheDocument();
+    expect(screen.getByText('CPR Assist')).toBeInTheDocument();
+    expect(screen.getByText('Fire Evac')).toBeInTheDocument();
+    expect(screen.getByText('Bleed Stop')).toBeInTheDocument();
+    expect(screen.getByText(/Targeted Triage Follow-up Questions/i)).toBeInTheDocument();
+    expect(screen.getByText('Analyze Gaps')).toBeInTheDocument();
+  });
+
   it('discards the previous unit selection when the selected incident changes', async () => {
     const { rerender } = render(<IncidentDetail incident={assessedIncident} />);
     expect(await screen.findByText('Confirm & Dispatch AMB-VJW-01')).toBeInTheDocument();

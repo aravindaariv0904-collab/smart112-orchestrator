@@ -2,7 +2,9 @@ import re
 from typing import Any, Dict, List, Tuple
 
 # Critical life-threatening emergency keywords triggering LEVEL_1_CRITICAL escalation
+# Includes English, Telugu (తెలుగు), and Hindi (हिन्दी) indicators (BUG-07 Multilingual Processing)
 CRITICAL_INDICATORS = [
+    # English
     "unconscious",
     "head injury",
     "severe bleeding",
@@ -10,16 +12,33 @@ CRITICAL_INDICATORS = [
     "flames",
     "explosion",
     "cardiac",
+    "cardiac arrest",
     "not breathing",
     "fuel leaking",
+    "fuel leak",
     "overturned",
     "pinned",
     "drowning",
     "electrocution",
     "active shooter",
+    # Telugu (తెలుగు)
+    "స్పృహ లేదు",      # unconscious
+    "గుండెపోటు",       # cardiac arrest
+    "మంటలు",          # flames / fire
+    "తీవ్ర రక్తస్రావం",   # severe bleeding
+    "ఇరుక్కుపోయారు",   # trapped
+    "ఇంధనం లీక్",       # fuel leak
+    # Hindi (हिन्दी)
+    "बेहोश",           # unconscious
+    "दिल का दौरा",      # heart attack / cardiac
+    "आग",              # fire / flames
+    "खून बह रहा",       # bleeding
+    "फंसे हुए",        # trapped
+    "तेल रिसाव",        # fuel leak
 ]
 
 HIGH_SEVERITY_INDICATORS = [
+    # English
     "fracture",
     "deep cut",
     "smoke",
@@ -27,9 +46,18 @@ HIGH_SEVERITY_INDICATORS = [
     "robbery",
     "collision",
     "pedestrian struck",
+    # Telugu
+    "గాయపడ్డారు",       # injured
+    "ప్రమాదం",          # accident
+    "పొగ",              # smoke
+    # Hindi
+    "घायल",             # injured
+    "दुर्घटना",          # accident / collision
+    "धुआं",              # smoke
 ]
 
 NEGATION_PREFIXES = {
+    # English
     "no",
     "not",
     "never",
@@ -50,9 +78,19 @@ NEGATION_PREFIXES = {
     "denies",
     "denied",
     "negative",
+    # Telugu
+    "లేదు",
+    "కాదు",
+    "ఏమీ లేదు",
+    # Hindi
+    "नहीं",
+    "ना",
+    "बिना",
+    "कोई नहीं",
 }
 
 NEGATION_POSTFIXES = {
+    # English
     "none",
     "negative",
     "ruled out",
@@ -63,6 +101,15 @@ NEGATION_POSTFIXES = {
     "cleared",
     "zero",
     "false",
+    # Telugu
+    "లేదు",
+    "లేవు",
+    "ఆగిపోయింది",
+    # Hindi
+    "नहीं",
+    "नहीं है",
+    "बुझ गई",
+    "समाप्त",
 }
 
 DRILL_OR_FALSE_ALARM_TRIGGERS = [
@@ -76,6 +123,11 @@ DRILL_OR_FALSE_ALARM_TRIGGERS = [
     "accidental call",
     "pocket dial",
     "stand down",
+    # Telugu / Hindi drills
+    "మాక్ డ్రిల్",
+    "పరీక్ష కాల్",
+    "मॉक ड्रिल",
+    "अभ्यास कॉल",
 ]
 
 
@@ -84,7 +136,7 @@ def check_indicator_with_negation(indicator: str, text: str) -> Tuple[bool, bool
     Check if an indicator is present in the text, and whether it is negated.
     Returns: (is_present, is_negated)
     """
-    pattern = r"\b" + re.escape(indicator) + r"\b"
+    pattern = r"(?:\b|\s|^)" + re.escape(indicator) + r"(?:\b|\s|$)"
     matches = list(re.finditer(pattern, text, re.IGNORECASE))
     if not matches:
         return False, False
@@ -106,12 +158,12 @@ def check_indicator_with_negation(indicator: str, text: str) -> Tuple[bool, bool
 
         # Look back up to 4 words (approx 35 chars) for negation prefixes
         prefix_window = text[max(0, start_idx - 35) : start_idx].lower()
-        words_before = re.findall(r"\b\w+\b", prefix_window)
+        words_before = [w.strip(".,;:!?()[]{}'\"") for w in re.findall(r"\S+", prefix_window)]
         has_prefix_negation = any(w in NEGATION_PREFIXES for w in words_before[-4:])
 
         # Look forward up to 3 words (approx 25 chars) for postfix negations
         postfix_window = text[end_idx : min(len(text), end_idx + 25)].lower()
-        words_after = re.findall(r"\b\w+\b", postfix_window)
+        words_after = [w.strip(".,;:!?()[]{}'\"") for w in re.findall(r"\S+", postfix_window)]
         has_postfix_negation = any(w in NEGATION_POSTFIXES for w in words_after[:3])
 
         if has_prefix_negation or has_postfix_negation:
@@ -130,13 +182,14 @@ def evaluate_deterministic_rules(
     - Accurately discounts negated keywords (e.g. 'no unconscious victims', 'no fire').
     - Detects simulated training drills, false alarms, and stand-down requests.
     - Escalates confirmed critical signals to LEVEL_1_CRITICAL conservatively.
+    - Supports Telugu and Hindi emergency signals.
     """
     text_lower = raw_text.lower()
     full_text = (raw_text + " " + str(extracted_data)).lower()
 
     # 1. Context Validation: Drills, Training Exercises & False Alarms
     is_drill_or_false_alarm = any(
-        re.search(r"\b" + re.escape(trigger) + r"\b", text_lower)
+        re.search(r"(?:\b|\s|^)" + re.escape(trigger) + r"(?:\b|\s|$)", text_lower)
         for trigger in DRILL_OR_FALSE_ALARM_TRIGGERS
     )
 

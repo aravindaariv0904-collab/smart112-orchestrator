@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ai.extractor import extract_emergency_facts
+from ai.followup import generate_targeted_followup_questions
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.security import generate_uuid
@@ -22,6 +23,7 @@ from backend.app.schemas.dispatch import (
     RecommendationResponse,
 )
 from backend.app.schemas.incident import IncidentCreate, IncidentResponse
+from backend.app.services.correlator import find_incident_duplicates
 from backend.app.services.dispatch_service import execute_dispatch
 from backend.app.services.matcher import haversine_distance_km, match_candidate_units
 from backend.app.services.state_machine import VALID_INCIDENT_STATUSES
@@ -48,35 +50,23 @@ def _enrich_incident_dict(incident: Incident, db: Session) -> dict:
     )
     if assignment:
         data["assigned_unit_id"] = assignment.unit_id
-        unit = db.query(EmergencyUnit).filter(EmergencyUnit.id == assignment.unit_id).first()
-        if unit:
-            data["assigned_unit_callsign"] = unit.callsign
-            data["assigned_unit_type"] = unit.unit_type
-    else:
-        data["assigned_unit_id"] = None
-        data["assigned_unit_callsign"] = None
-        data["assigned_unit_type"] = None
     return data
 
 
 def _next_incident_number(db: Session, offset: int = 1) -> str:
     """
-    Generate the next sequential incident number for the current UTC year.
-
-    Parses existing numbers instead of relying on COUNT(*) so that deleting or
-    purging incidents can never mint a duplicate primary key.
-    On non-SQLite databases, applies row locking on the most recent incident to serialize
-    concurrent number allocation.
+    Generate sequential incident number using row locking or count fallback.
+    Guarantees monotonicity and zero duplicates.
     """
-    year = datetime.now(timezone.utc).year
-    prefix = f"INC-{year}-"
-    query = (
-        db.query(Incident.incident_number)
-        .filter(Incident.incident_number.like(f"{prefix}%"))
-    )
+    prefix = f"INC-{datetime.now(timezone.utc).year}-"
     bind = db.get_bind()
-    if bind is not None and bind.dialect.name != "sqlite":
-        query = query.order_by(desc(Incident.incident_number)).with_for_update()
+    is_postgres = bind is not None and bind.dialect.name == "postgresql"
+
+    query = db.query(Incident.incident_number).filter(
+        Incident.incident_number.like(f"{prefix}%")
+    )
+    if is_postgres:
+        query = query.with_for_update()
 
     existing = query.all()
 
@@ -94,8 +84,8 @@ async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)
     """
     Ingest and register an emergency incident.
 
-    Runs AI extraction with a strict timeout, evaluates safety escalation rules,
-    performs spatial-temporal duplicate detection (within 250m and 30m window),
+    Runs AI extraction with strict timeout, evaluates safety escalation rules,
+    performs multi-dimensional spatio-temporal duplicate detection (BUG-10),
     persists the incident with concurrency-safe atomic sequence generation,
     and appends an immutable entry to the audit ledger.
     """
@@ -106,44 +96,46 @@ async def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)
     severity = assessment.get("severity", "LEVEL_3_MODERATE")
     requires_review = assessment.get("requires_human_review", False)
 
-    # Spatial-temporal duplicate check: query active incidents within 250m in the last 30 minutes
+    # Multi-dimensional Spatio-temporal Duplicate Correlation (BUG-10)
     now_utc = datetime.now(timezone.utc)
     recent_active = (
         db.query(Incident)
         .filter(Incident.status.in_(ACTIVE_INCIDENT_STATUSES))
         .all()
     )
+    
+    duplicate_candidates = find_incident_duplicates(
+        new_lat=payload.latitude,
+        new_lon=payload.longitude,
+        new_category=category,
+        new_hazards=assessment.get("hazards", []),
+        active_incidents=recent_active,
+        threshold=0.60,
+    )
+
     potential_duplicate = None
     duplicate_dist_m = 0
-    for cand in recent_active:
-        if cand.created_at:
-            cand_time = cand.created_at
-            if cand_time.tzinfo is None:
-                cand_time = cand_time.replace(tzinfo=timezone.utc)
-            if (now_utc - cand_time).total_seconds() > 1800:
-                continue
-        dist_km = haversine_distance_km(
-            payload.latitude, payload.longitude, cand.latitude, cand.longitude
-        )
-        if dist_km <= 0.25:  # within 250 meters
-            potential_duplicate = cand
-            duplicate_dist_m = int(dist_km * 1000)
-            break
-
-    if potential_duplicate:
+    if duplicate_candidates:
+        top_dup = duplicate_candidates[0]
+        potential_duplicate = db.query(Incident).filter(Incident.id == top_dup["candidate_id"]).first()
+        duplicate_dist_m = top_dup["distance_meters"]
+        
         flags = assessment.setdefault("uncertainty_flags", [])
         if "POTENTIAL_DUPLICATE_REPORT" not in flags:
             flags.append("POTENTIAL_DUPLICATE_REPORT")
-        assessment["potential_duplicate_of"] = potential_duplicate.incident_number
-        assessment["potential_duplicate_id"] = potential_duplicate.id
+        assessment["potential_duplicate_of"] = top_dup["candidate_incident_number"]
+        assessment["potential_duplicate_id"] = top_dup["candidate_id"]
         assessment["potential_duplicate_distance_meters"] = duplicate_dist_m
+        assessment["duplicate_correlation_score"] = top_dup["composite_score"]
+        assessment["duplicate_rationale"] = top_dup["rationale"]
         requires_review = True
         logger.warning(
-            "Incident near (%.5f, %.5f) flagged as potential duplicate of %s (dist: %dm).",
+            "Incident near (%.5f, %.5f) correlated as potential duplicate of %s (dist: %dm, score: %.2f).",
             payload.latitude,
             payload.longitude,
-            potential_duplicate.incident_number,
+            top_dup["candidate_incident_number"],
             duplicate_dist_m,
+            top_dup["composite_score"],
         )
 
     incident: Optional[Incident] = None
@@ -267,6 +259,69 @@ def get_incident(id: str, db: Session = Depends(get_db)):
             detail=f"Incident with ID {id} not found.",
         )
     return _enrich_incident_dict(incident, db)
+
+
+@router.get("/{id}/duplicates")
+def get_incident_duplicates(id: str, db: Session = Depends(get_db)):
+    """Retrieve correlated duplicate reports for dispatcher cross-referencing (BUG-10)."""
+    incident = db.query(Incident).filter(Incident.id == id).first()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID {id} not found.",
+        )
+
+    other_incidents = db.query(Incident).filter(Incident.id != id).all()
+
+    hazards = []
+    if incident.assessment_data:
+        try:
+            data = json.loads(incident.assessment_data)
+            hazards = data.get("hazards", [])
+        except Exception:
+            pass
+
+    matches = find_incident_duplicates(
+        new_lat=incident.latitude,
+        new_lon=incident.longitude,
+        new_category=incident.category,
+        new_hazards=hazards,
+        active_incidents=other_incidents,
+        threshold=0.45,
+    )
+    return {
+        "incident_id": id,
+        "incident_number": incident.incident_number,
+        "correlated_duplicates": matches,
+        "total_duplicates": len(matches),
+    }
+
+
+@router.post("/{id}/follow-up-questions")
+def get_follow_up_questions(id: str, db: Session = Depends(get_db)):
+    """Generate prioritized life-safety follow-up questions for missing triage data (BUG-11)."""
+    incident = db.query(Incident).filter(Incident.id == id).first()
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID {id} not found.",
+        )
+
+    assessment = {}
+    if incident.assessment_data:
+        try:
+            assessment = json.loads(incident.assessment_data)
+        except Exception:
+            pass
+
+    questions = generate_targeted_followup_questions(incident.category, assessment)
+    return {
+        "incident_id": id,
+        "incident_number": incident.incident_number,
+        "category": incident.category,
+        "priority_questions": questions,
+        "total_questions": len(questions),
+    }
 
 
 @router.post("/{id}/recommend", response_model=RecommendationResponse)

@@ -1,12 +1,15 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from ai.extractor import extract_emergency_facts
 from ai.fallback import generate_fallback_assessment
 from backend.app.core.config import settings
 from multimodal.transcriber import transcribe_audio_file
+from multimodal.tts import GUIDANCE_TEMPLATES, synthesize_emergency_guidance
 
 logger = logging.getLogger("smart112.api.audio")
 router = APIRouter()
@@ -137,3 +140,33 @@ async def transcribe_emergency_audio(file: UploadFile = File(...)):
         "extracted_facts": extracted_facts,
         "requires_human_review": extracted_facts.get("requires_human_review", True),
     }
+
+
+class GuidanceRequest(BaseModel):
+    guidance_type: str = "CPR_ASSIST"
+    custom_text: Optional[str] = None
+    language: str = "en"
+
+
+@router.get("/guidance-templates")
+def list_guidance_templates():
+    """Retrieve standard emergency life-safety voice guidance templates (BUG-08)."""
+    return {
+        "templates": [
+            {"type": k, "advisory": v} for k, v in GUIDANCE_TEMPLATES.items()
+        ]
+    }
+
+
+@router.post("/synthesize-guidance")
+def synthesize_guidance_audio(payload: GuidanceRequest):
+    """
+    Synthesize life-safety caller audio guidance (CPR pacing, fire evacuation, bleeding control).
+    Returns audio/wav or audio/mpeg stream as base64 payload with safe fallback (BUG-08).
+    """
+    result = synthesize_emergency_guidance(
+        guidance_type=payload.guidance_type,
+        custom_text=payload.custom_text or "",
+        language=payload.language or "en",
+    )
+    return result

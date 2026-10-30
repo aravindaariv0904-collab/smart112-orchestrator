@@ -12,7 +12,11 @@ import {
   Flame, 
   Activity, 
   CheckCheck,
-  RotateCw
+  RotateCw,
+  Volume2,
+  HelpCircle,
+  Sparkles,
+  Radio
 } from 'lucide-react';
 import { Incident, RecommendationResponse, CandidateUnit, ExtractedFacts } from '../types';
 import { api } from '../services/api';
@@ -37,6 +41,41 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
   const [isDispatching, setIsDispatching] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [followUpQuestions, setFollowUpQuestions] = useState<any[]>([]);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
+  const [audioAdvisoryLoading, setAudioAdvisoryLoading] = useState(false);
+  const [advisoryActive, setAdvisoryActive] = useState<string | null>(null);
+
+  const handleLoadQuestions = async () => {
+    if (!incident) return;
+    setIsLoadingQuestions(true);
+    try {
+      const res = await api.getFollowUpQuestions(incident.id);
+      setFollowUpQuestions(res.priority_questions || []);
+    } catch (err: any) {
+      setActionMessage({ text: `Failed to generate questions: ${err.message}`, type: 'error' });
+    } finally {
+      setIsLoadingQuestions(false);
+    }
+  };
+
+  const handleSynthesizeAdvisory = async (type: string) => {
+    setAudioAdvisoryLoading(true);
+    try {
+      const res = await api.synthesizeGuidance(type);
+      setAdvisoryActive(res.guidance_type);
+      if (res.audio_base64) {
+        const mime = res.mime_type || 'audio/wav';
+        const audio = new Audio(`data:${mime};base64,${res.audio_base64}`);
+        audio.play().catch(() => {});
+      }
+      setActionMessage({ text: `Broadcasted ${res.guidance_type} audio guidance advisory.`, type: 'success' });
+    } catch (err: any) {
+      setActionMessage({ text: `Voice guidance failed: ${err.message}`, type: 'error' });
+    } finally {
+      setAudioAdvisoryLoading(false);
+    }
+  };
 
   // Parse assessment JSON if available
   let facts: ExtractedFacts = {};
@@ -344,6 +383,80 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
               </div>
             </div>
           )}
+
+          {/* BUG-11: Targeted Triage Follow-up Questions */}
+          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-semibold text-sky-400 uppercase flex items-center gap-1.5">
+                <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
+                <span>Targeted Triage Follow-up Questions</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleLoadQuestions}
+                disabled={isLoadingQuestions}
+                className="px-2 py-0.5 rounded bg-sky-950/60 hover:bg-sky-900 text-sky-300 border border-sky-500/40 text-[10px] font-semibold flex items-center gap-1 transition"
+              >
+                <Sparkles className={`w-3 h-3 ${isLoadingQuestions ? 'animate-spin' : ''}`} />
+                <span>{isLoadingQuestions ? 'Generating...' : 'Analyze Gaps'}</span>
+              </button>
+            </div>
+            {followUpQuestions.length > 0 ? (
+              <div className="space-y-1.5">
+                {followUpQuestions.map((q, idx) => (
+                  <div key={idx} className="p-2 rounded bg-slate-900 border border-slate-800 text-[11px] space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-bold text-sky-300">P{q.priority} · {q.category}</span>
+                      <span className="px-1.5 py-0.2 rounded bg-rose-950/60 text-rose-400 border border-rose-500/30 font-mono">
+                        {q.urgency}
+                      </span>
+                    </div>
+                    <p className="text-slate-200">{q.question}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-500 italic">
+                Click 'Analyze Gaps' to dynamically extract targeted caller interview questions for missing life-safety factors.
+              </p>
+            )}
+          </div>
+
+          {/* BUG-08: Voice Guidance Synthesis (TTS) */}
+          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-semibold text-emerald-400 uppercase flex items-center gap-1.5">
+                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Caller Voice Guidance Advisory (TTS)</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleSynthesizeAdvisory('CPR_ASSIST')}
+                disabled={audioAdvisoryLoading}
+                className="p-1.5 rounded bg-slate-900 hover:bg-emerald-950/40 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
+              >
+                <span>CPR Assist</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSynthesizeAdvisory('FIRE_EVAC')}
+                disabled={audioAdvisoryLoading}
+                className="p-1.5 rounded bg-slate-900 hover:bg-orange-950/40 text-orange-300 border border-orange-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
+              >
+                <span>Fire Evac</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSynthesizeAdvisory('HEMORRHAGE_CONTROL')}
+                disabled={audioAdvisoryLoading}
+                className="p-1.5 rounded bg-slate-900 hover:bg-rose-950/40 text-rose-300 border border-rose-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
+              >
+                <span>Bleed Stop</span>
+              </button>
+            </div>
+          </div>
 
           {/* Uncertainty flags */}
           {facts.uncertainty_flags && facts.uncertainty_flags.length > 0 && (

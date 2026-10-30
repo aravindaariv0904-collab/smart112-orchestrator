@@ -22,6 +22,7 @@ from backend.app.services.state_machine import (
     InvalidStateTransitionError,
     validate_state_transition,
 )
+from backend.app.services.telemetry import compute_unit_telemetry
 
 logger = logging.getLogger("smart112.api.dispatch")
 router = APIRouter()
@@ -48,6 +49,40 @@ def list_units(
         query = query.filter(EmergencyUnit.status == unit_status.upper())
     units = query.all()
     return [unit.to_dict() for unit in units]
+
+
+@router.get("/units/{id}/telemetry")
+def get_unit_telemetry(
+    id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns real-time or simulated dead-reckoning telemetry for an emergency unit (BUG-12).
+    Transparently discloses simulated vs hardware GPS data.
+    """
+    unit = db.query(EmergencyUnit).filter(EmergencyUnit.id == id).first()
+    if not unit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Emergency unit with ID '{id}' not found.",
+        )
+
+    # Find active assignment if any
+    active_assignment = (
+        db.query(DispatchAssignment)
+        .filter(
+            DispatchAssignment.unit_id == unit.id,
+            DispatchAssignment.status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+        )
+        .order_by(DispatchAssignment.timestamp.desc())
+        .first()
+    )
+
+    incident = None
+    if active_assignment:
+        incident = db.query(Incident).filter(Incident.id == active_assignment.incident_id).first()
+
+    return compute_unit_telemetry(unit, incident)
 
 
 @router.post("/dispatch/confirm", response_model=DispatchResponse, status_code=status.HTTP_200_OK)

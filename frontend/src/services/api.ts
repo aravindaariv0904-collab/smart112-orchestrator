@@ -75,7 +75,7 @@ export const api = {
   async approveDispatch(
     incidentId: string, 
     unitId: string, 
-    dispatcherId: string = 'DISPATCHER_SARAH',
+    dispatcherId: string = 'DISPATCHER_GNT_01',
     notes?: string
   ): Promise<any> {
     return request(`/incidents/${incidentId}/approve-dispatch`, {
@@ -99,7 +99,7 @@ export const api = {
   async updateUnitStatus(
     unitId: string, 
     status: string, 
-    dispatcherId: string = 'DISPATCHER_SARAH',
+    dispatcherId: string = 'DISPATCHER_GNT_01',
     notes?: string
   ): Promise<any> {
     return request(`/units/${unitId}/status`, {
@@ -145,5 +145,79 @@ export const api = {
 
   async transcribeAudio(file: File): Promise<AudioTranscribeResult> {
     return this.uploadAudio(file);
+  },
+
+  // BUG-08: Text-to-Speech Guidance
+  async synthesizeGuidance(guidanceType: string = 'CPR_ASSIST', customText?: string, language: string = 'en'): Promise<any> {
+    return request('/audio/synthesize-guidance', {
+      method: 'POST',
+      body: JSON.stringify({
+        guidance_type: guidanceType,
+        custom_text: customText,
+        language
+      })
+    });
+  },
+
+  async getGuidanceTemplates(): Promise<{ templates: Array<{ type: string; advisory: string }> }> {
+    return request('/audio/guidance-templates');
+  },
+
+  // BUG-09: VLM Scene Image Analysis
+  async analyzeSceneImage(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE}/vision/analyze`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      let errorDetail = `Image analysis failed (${response.status})`;
+      try {
+        const errorJson = await response.json();
+        if (errorJson.detail) errorDetail = errorJson.detail;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorDetail);
+    }
+
+    return response.json();
+  },
+
+  // BUG-10: Spatio-temporal Incident Duplicates
+  async getIncidentDuplicates(incidentId: string): Promise<any> {
+    return request(`/incidents/${incidentId}/duplicates`);
+  },
+
+  // BUG-11: Targeted Follow-up Questions
+  async getFollowUpQuestions(incidentId: string): Promise<any> {
+    return request(`/incidents/${incidentId}/follow-up-questions`, {
+      method: 'POST'
+    });
+  },
+
+  // BUG-12: Unit Telemetry
+  async getUnitTelemetry(unitId: string): Promise<any> {
+    return request(`/units/${unitId}/telemetry`);
+  },
+
+  // BUG-13: Multi-agent Workflow
+  async runMultiAgentWorkflow(transcript: string, latitude: number, longitude: number): Promise<any> {
+    return request('/orchestrator/triage-workflow', {
+      method: 'POST',
+      body: JSON.stringify({
+        transcript,
+        latitude,
+        longitude
+      })
+    });
+  },
+
+  // BUG-14: Real Database Analytics Dashboard
+  async getDashboardAnalytics(): Promise<any> {
+    return request('/analytics/dashboard');
   }
 };

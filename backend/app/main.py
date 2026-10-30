@@ -16,6 +16,9 @@ from backend.app.api.dispatch import router as dispatch_router
 from backend.app.api.audit import router as audit_router
 from backend.app.api.audio import router as audio_router
 from backend.app.api.auth import router as auth_router
+from backend.app.api.vision import router as vision_router
+from backend.app.api.orchestrator import router as orchestrator_router
+from backend.app.api.analytics import router as analytics_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -77,6 +80,9 @@ app.include_router(dispatch_router, prefix=f"{settings.API_V1_STR}", tags=["Disp
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit Ledger"])
 app.include_router(audio_router, prefix=f"{settings.API_V1_STR}/audio", tags=["Audio & Transcription"])
 app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication & RBAC"])
+app.include_router(vision_router, prefix=f"{settings.API_V1_STR}/vision", tags=["Vision AI & VLM"])
+app.include_router(orchestrator_router, prefix=f"{settings.API_V1_STR}/orchestrator", tags=["Multi-Agent Orchestrator"])
+app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics & Dashboard"])
 
 
 def _probe_database() -> dict:
