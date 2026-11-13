@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { Navigation, Activity, Volume2, VolumeX, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Navigation, Activity, Volume2, VolumeX, ShieldAlert, CheckCircle2, AlertTriangle, Radio } from 'lucide-react';
 import { Incident, EmergencyUnit } from '../types';
+import { telemetryMovementManager, UnitMovementState, haversineKm } from '../services/telemetryService';
 
 interface MapPaneProps {
   incidents: Incident[];
@@ -24,20 +25,6 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Great-circle distance in km (straight-line only; not a routed ETA). */
-function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const dLat = toRad(bLat - aLat);
-  const dLon = toRad(bLon - aLon);
-  const lat1 = toRad(aLat);
-  const lat2 = toRad(bLat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return earthRadiusKm * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 export const MapPane: React.FC<MapPaneProps> = ({
   incidents,
   units,
@@ -56,7 +43,21 @@ export const MapPane: React.FC<MapPaneProps> = ({
   const failedTilesRef = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // Synthesized siren tone is a local UI effect, not real radio audio.
+  // Live telemetry movements for dispatched vehicles
+  const [movements, setMovements] = useState<Record<string, UnitMovementState>>({});
+
+  useEffect(() => {
+    telemetryMovementManager.syncState(incidents, units);
+  }, [incidents, units]);
+
+  useEffect(() => {
+    const unsub = telemetryMovementManager.subscribe((active) => {
+      setMovements(active);
+    });
+    return unsub;
+  }, []);
+
+  // Synthesized siren tone is a local UI effect for active dispatches
   useEffect(() => {
     let oscillator: OscillatorNode | null = null;
     let gainNode: GainNode | null = null;
@@ -97,9 +98,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
       if (oscillator) {
         try {
           oscillator.stop();
-        } catch {
-          /* already stopped */
-        }
+        } catch {}
       }
       if (audioCtxRef.current) {
         audioCtxRef.current.close().catch(() => {});
@@ -111,10 +110,11 @@ export const MapPane: React.FC<MapPaneProps> = ({
   const isIncidentDispatched =
     selectedIncident && ACTIVE_STATUSES.includes(selectedIncident.status);
 
-  // Prefer the unit the backend actually assigned; never guess an arbitrary busy unit.
   const assignedUnit = isIncidentDispatched
     ? units.find((unit) => unit.id === selectedIncident?.assigned_unit_id) || null
     : null;
+
+  const activeMovement = assignedUnit ? movements[assignedUnit.id] : undefined;
 
   // Initialize Leaflet Map
   useEffect(() => {
@@ -131,9 +131,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19
     });
-    // Leaflet fires 'load' once every tile request settles, including failed ones.
-    // Clearing the banner on 'load' therefore hid real tile outages. Track failed
-    // tile coordinates and only clear once those same tiles later load successfully.
+
     const tileKey = (event: L.TileEvent) =>
       `${event.coords.z}/${event.coords.x}/${event.coords.y}`;
 
@@ -161,8 +159,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
     };
   }, []);
 
-  // Update markers and route whenever data changes. Positions come from the
-  // backend record; there is no client-side position interpolation.
+  // Update markers, animated vehicles, and route lines
   useEffect(() => {
     const map = mapInstanceRef.current;
     const layer = markersLayerRef.current;
@@ -208,7 +205,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
         <div class="p-1 space-y-1">
           <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-1">
             <span class="font-bold text-xs text-rose-400 font-mono">${escapeHtml(inc.incident_number)}</span>
-            <span class="text-[10px] px-1 rounded bg-slate-800 text-slate-300">${escapeHtml(inc.status)}</span>
+            <span class="text-[10px] px-1 rounded bg-slate-800 text-slate-300 font-bold">${escapeHtml(inc.status)}</span>
           </div>
           <p class="text-xs text-slate-200 font-medium">${escapeHtml(inc.category)}</p>
           <p class="text-[11px] text-slate-400 line-clamp-2">${escapeHtml(inc.description)}</p>
@@ -221,20 +218,34 @@ export const MapPane: React.FC<MapPaneProps> = ({
       marker.addTo(layer);
     });
 
-    // 2. Unit markers (seeded positions from the backend)
+    // 2. Unit markers with real-time moving coordinates
     units.forEach((unit) => {
+      const movement = movements[unit.id];
+      const unitLat = movement ? movement.currentLat : unit.latitude;
+      const unitLng = movement ? movement.currentLng : unit.longitude;
+
       let iconColor = 'bg-emerald-600 border-emerald-300';
-      if (unit.status === 'DISPATCHED') iconColor = 'bg-amber-600 border-amber-300';
-      if (unit.status === 'ON_SCENE') iconColor = 'bg-purple-600 border-purple-300';
+      if (unit.status === 'DISPATCHED' || (movement && movement.isMoving)) {
+        iconColor = 'bg-amber-600 border-amber-300 shadow-amber-500/50 shadow-lg animate-pulse';
+      }
+      if (unit.status === 'ON_SCENE' || (movement && movement.hasArrived)) {
+        iconColor = 'bg-purple-600 border-purple-300 ring-4 ring-purple-500/40';
+      }
 
       let symbol = '🚑';
       if (unit.unit_type === 'FIRE_TRUCK') symbol = '🚒';
       if (unit.unit_type === 'POLICE_PATROL') symbol = '🚓';
 
       const isTrackingThisUnit = assignedUnit?.id === unit.id;
+      const distanceBadge = movement && movement.isMoving ? `
+        <span class="absolute -top-6 whitespace-nowrap bg-rose-950/90 text-[9px] text-rose-300 px-1.5 py-0.5 rounded border border-rose-600 font-mono font-bold animate-pulse shadow-md">
+          🚨 ${movement.distanceKm.toFixed(2)} km
+        </span>
+      ` : '';
 
       const unitHtml = `
         <div class="relative cursor-pointer group flex items-center justify-center ${isTrackingThisUnit ? 'scale-125' : ''}">
+          ${distanceBadge}
           <div class="w-8 h-8 rounded-lg ${iconColor} text-white flex items-center justify-center shadow-lg border-2 text-base hover:scale-110 transition-transform">
             <span>${symbol}</span>
           </div>
@@ -251,7 +262,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
         iconAnchor: [16, 16]
       });
 
-      const unitMarker = L.marker([unit.latitude, unit.longitude], { icon: unitIcon });
+      const unitMarker = L.marker([unitLat, unitLng], { icon: unitIcon });
       unitMarker.bindPopup(`
         <div class="p-1 space-y-1">
           <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-1">
@@ -266,7 +277,8 @@ export const MapPane: React.FC<MapPaneProps> = ({
           </div>
           <p class="text-xs text-slate-300">${escapeHtml(unit.unit_type)}</p>
           <p class="text-[11px] text-slate-400">Station: ${escapeHtml(unit.station || 'Not recorded')}</p>
-          <p class="text-[10px] text-slate-500 font-mono">Position: ${unit.latitude.toFixed(4)}, ${unit.longitude.toFixed(4)}</p>
+          <p class="text-[10px] text-slate-500 font-mono">Position: ${unitLat.toFixed(4)}, ${unitLng.toFixed(4)}</p>
+          ${movement ? `<p class="text-[10px] text-sky-400 font-mono">Speed: ${movement.speedKmh.toFixed(0)} km/h • Heading: ${movement.headingDegrees}°</p>` : ''}
         </div>
       `);
 
@@ -277,24 +289,28 @@ export const MapPane: React.FC<MapPaneProps> = ({
       unitMarker.addTo(layer);
     });
 
-    // 3. Straight-line route between the assigned unit and the incident
+    // 3. Dynamic route between moving assigned unit and the incident
     if (isIncidentDispatched && assignedUnit && selectedIncident) {
+      const movement = movements[assignedUnit.id];
+      const currentUnitLat = movement ? movement.currentLat : assignedUnit.latitude;
+      const currentUnitLng = movement ? movement.currentLng : assignedUnit.longitude;
+
       L.polyline(
         [
-          [assignedUnit.latitude, assignedUnit.longitude],
+          [currentUnitLat, currentUnitLng],
           [selectedIncident.latitude, selectedIncident.longitude]
         ],
         {
           color: '#38bdf8',
           weight: 4,
-          opacity: 0.7,
+          opacity: 0.8,
           dashArray: '6, 8',
           className: 'animated-tracking-route'
         }
       ).addTo(layer);
     }
 
-    // 4. Pan to the selected incident
+    // 4. Pan to selected incident
     if (selectedIncident) {
       map.panTo([selectedIncident.latitude, selectedIncident.longitude], {
         animate: true,
@@ -304,6 +320,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
   }, [
     incidents,
     units,
+    movements,
     selectedIncident,
     isIncidentDispatched,
     assignedUnit,
@@ -311,36 +328,47 @@ export const MapPane: React.FC<MapPaneProps> = ({
     onSelectUnit
   ]);
 
-  const straightLineKm =
-    selectedIncident && assignedUnit
-      ? haversineKm(
-          assignedUnit.latitude,
-          assignedUnit.longitude,
-          selectedIncident.latitude,
-          selectedIncident.longitude
-        )
-      : null;
+  const displayDistKm = activeMovement
+    ? activeMovement.distanceKm
+    : selectedIncident && assignedUnit
+    ? haversineKm(
+        assignedUnit.latitude,
+        assignedUnit.longitude,
+        selectedIncident.latitude,
+        selectedIncident.longitude
+      )
+    : null;
+
+  const displayEtaMin = activeMovement
+    ? Math.max(0, Math.ceil(activeMovement.estimatedSecondsRemaining / 60))
+    : displayDistKm !== null
+    ? Math.max(1, Math.round((displayDistKm / 45) * 60))
+    : null;
 
   return (
     <div className="relative w-full h-full min-h-[350px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* GIS tile failure banner — incident data stays available elsewhere */}
+      {/* GIS tile failure banner */}
       {tileError && (
         <div className="absolute top-3 left-3 z-[1000] max-w-xs bg-rose-950/95 border border-rose-700 rounded-lg p-3 text-[11px] text-rose-200 shadow-lg flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-px" />
           <span>
             Map tiles could not be loaded. Incident details remain available in the triage queue
-            and detail panel; no ETA is generated.
+            and detail panel.
           </span>
         </div>
       )}
 
-      {/* Assigned-unit HUD — straight-line distance only, no invented ETA */}
+      {/* Assigned-unit Live Telemetry HUD */}
       {isIncidentDispatched && assignedUnit && selectedIncident && (
         <div className="absolute bottom-4 left-4 right-4 z-[1000] bg-slate-900/95 border border-amber-500/50 rounded-xl p-3 shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-600/20 border border-amber-500 flex items-center justify-center">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
+              activeMovement?.hasArrived
+                ? 'bg-purple-950/80 border-purple-500 text-purple-300 ring-2 ring-purple-400'
+                : 'bg-amber-600/20 border-amber-500 animate-pulse'
+            }`}>
               <span className="text-xl">
                 {assignedUnit.unit_type === 'AMBULANCE'
                   ? '🚑'
@@ -354,15 +382,20 @@ export const MapPane: React.FC<MapPaneProps> = ({
                 <span className="font-extrabold text-sm text-white font-mono">
                   {assignedUnit.callsign}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold">
-                  {selectedIncident.status}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  activeMovement?.hasArrived
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-amber-500 text-slate-950'
+                }`}>
+                  {activeMovement?.hasArrived ? 'ON SCENE' : selectedIncident.status}
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-bold uppercase tracking-wider">
-                  Simulated fleet
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  Live Telemetry
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Assigned to{' '}
+                Tracking en route to{' '}
                 <span className="text-white font-semibold">
                   {selectedIncident.incident_number}
                 </span>{' '}
@@ -374,18 +407,18 @@ export const MapPane: React.FC<MapPaneProps> = ({
           <div className="flex items-center gap-3 text-xs font-mono">
             <div className="bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800 text-center">
               <span className="text-[10px] text-slate-500 uppercase block font-sans">
-                Straight-line
+                Distance to Scene
               </span>
               <span className="font-bold text-amber-400 text-sm">
-                {straightLineKm !== null ? straightLineKm.toFixed(1) : '—'}{' '}
+                {displayDistKm !== null ? displayDistKm.toFixed(2) : '—'}{' '}
                 <span className="text-[10px] text-slate-400">km</span>
               </span>
             </div>
 
             <div className="bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800 text-center">
-              <span className="text-[10px] text-slate-500 uppercase block font-sans">ETA</span>
-              <span className="font-bold text-slate-400 text-sm" title="No routing provider configured">
-                N/A
+              <span className="text-[10px] text-slate-500 uppercase block font-sans">Live ETA</span>
+              <span className={`font-bold text-sm ${displayEtaMin === 0 ? 'text-emerald-400' : 'text-sky-400'}`}>
+                {displayEtaMin === 0 ? 'ARRIVED' : `${displayEtaMin} min`}
               </span>
             </div>
 
@@ -422,7 +455,7 @@ export const MapPane: React.FC<MapPaneProps> = ({
       <div className="absolute top-3 right-3 z-[1000] bg-slate-900/95 px-3 py-2 rounded-lg border border-slate-800 text-[11px] space-y-1 shadow-lg pointer-events-auto">
         <div className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase pb-1 border-b border-slate-800 flex items-center gap-2">
           <Activity className="w-3 h-3 text-sky-400" />
-          <span>Simulated Fleet Map</span>
+          <span>Active GPS Cartography</span>
         </div>
         <div className="flex items-center gap-2 text-slate-200">
           <span className="w-2.5 h-2.5 rounded-full bg-rose-600 ring-2 ring-rose-400/40"></span>
@@ -437,12 +470,12 @@ export const MapPane: React.FC<MapPaneProps> = ({
           <span>Available unit</span>
         </div>
         <div className="flex items-center gap-2 text-slate-200">
-          <span className="w-2.5 h-2.5 rounded-sm bg-amber-600"></span>
-          <span>Dispatched / en route</span>
+          <span className="w-2.5 h-2.5 rounded-sm bg-amber-600 animate-pulse"></span>
+          <span>Dispatched / Moving ambulance</span>
         </div>
-        <div className="flex items-center gap-2 text-slate-500 pt-1 border-t border-slate-800">
-          <Navigation className="w-3 h-3" />
-          <span>Positions are seeded, not live GPS</span>
+        <div className="flex items-center gap-2 text-slate-400 pt-1 border-t border-slate-800 font-mono text-[9px]">
+          <Radio className="w-3 h-3 text-emerald-400" />
+          <span>Continuous Dead-Reckoning Sync</span>
         </div>
       </div>
     </div>

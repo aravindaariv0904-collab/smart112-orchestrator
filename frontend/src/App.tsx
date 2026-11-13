@@ -10,6 +10,8 @@ import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { PublicPortal } from './views/PublicPortal';
 import { ResponderMDT } from './views/ResponderMDT';
 import { AuditView } from './views/AuditView';
+import { FacilitiesDashboard } from './views/FacilitiesDashboard';
+import { FleetDashboard } from './views/FleetDashboard';
 import { Incident, EmergencyUnit } from './types';
 import { api } from './services/api';
 
@@ -172,7 +174,25 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 3: Responder Mobile Data Terminal */}
+        {/* Tab 3: Emergency Fleet & Telemetry Operations */}
+        {activeTab === 'FLEET' && (
+          <div className="page-enter h-full overflow-y-auto">
+            <FleetDashboard
+              units={units}
+              incidents={incidents}
+              onRefresh={loadData}
+            />
+          </div>
+        )}
+
+        {/* Tab 4: Hospital Facilities & Trauma Bed Capacity */}
+        {activeTab === 'FACILITIES' && (
+          <div className="page-enter h-full overflow-y-auto">
+            <FacilitiesDashboard />
+          </div>
+        )}
+
+        {/* Tab 5: Responder Mobile Data Terminal */}
         {activeTab === 'MDT' && (
           <div className="page-enter h-full overflow-y-auto">
             <ResponderMDT
@@ -183,7 +203,7 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 4: Command Center Operations & Intelligence Analytics */}
+        {/* Tab 6: Command Center Operations & Intelligence Analytics */}
         {activeTab === 'ANALYTICS' && (
           <div className="page-enter h-full overflow-y-auto">
             <AnalyticsDashboard
@@ -193,7 +213,7 @@ export function App() {
           </div>
         )}
 
-        {/* Tab 5: Audit Ledger & Governance History */}
+        {/* Tab 7: Audit Ledger & Governance History */}
         {activeTab === 'AUDIT' && (
           <div className="page-enter h-full overflow-y-auto">
             <AuditView />

@@ -116,3 +116,29 @@ export interface AudioTranscribeResult {
   extracted_facts: ExtractedFacts;
   requires_human_review?: boolean;
 }
+
+export interface Facility {
+  id: string;
+  facility_id?: string;
+  name: string;
+  facility_type: string;
+  subtype?: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  phone?: string;
+  email?: string;
+  timezone?: string;
+  has_emergency: boolean;
+  has_icu: boolean;
+  has_operating_theatre?: boolean;
+  bed_count?: number;
+  available_beds?: number;
+  icu_beds_available?: number;
+  general_beds_available?: number;
+  blood_types_available?: string[];
+  description?: string;
+  operating_hours?: string;
+  is_active: boolean;
+  distance_km?: number;
+}

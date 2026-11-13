@@ -19,6 +19,11 @@ from backend.app.api.auth import router as auth_router
 from backend.app.api.vision import router as vision_router
 from backend.app.api.orchestrator import router as orchestrator_router
 from backend.app.api.analytics import router as analytics_router
+from backend.app.api.users import router as users_router
+from backend.app.api.facilities import router as facilities_router
+from backend.app.api.gps import router as gps_router
+from backend.app.api.notifications import router as notifications_router
+from backend.app.api.aitracking import router as aitracking_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -83,6 +88,11 @@ app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["Aut
 app.include_router(vision_router, prefix=f"{settings.API_V1_STR}/vision", tags=["Vision AI & VLM"])
 app.include_router(orchestrator_router, prefix=f"{settings.API_V1_STR}/orchestrator", tags=["Multi-Agent Orchestrator"])
 app.include_router(analytics_router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Analytics & Dashboard"])
+app.include_router(users_router)
+app.include_router(facilities_router)
+app.include_router(gps_router)
+app.include_router(notifications_router)
+app.include_router(aitracking_router)
 
 
 def _probe_database() -> dict:

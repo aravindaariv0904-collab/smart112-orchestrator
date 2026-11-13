@@ -17,7 +17,7 @@ from backend.app.services.matcher import is_unit_eligible, match_candidate_units
 # BUG-01: Weak Dispatcher Authentication & Backend-Enforced RBAC
 # ===========================================================================
 def test_bug_01_dispatcher_login_and_token_exchange(client):
-    # 1. Valid dispatcher credentials -> 200 OK
+    # 1. Valid dispatcher credentials -> 200 OK with JWT tokens
     resp_valid = client.post(
         "/api/v1/auth/login",
         json={"username": "dispatcher_sarah", "password": "cad112pass"},
@@ -27,8 +27,12 @@ def test_bug_01_dispatcher_login_and_token_exchange(client):
     assert data["role"] == "DISPATCHER"
     assert data["callsign"] == "DISPATCHER_SARAH"
     assert "DISPATCH_UNITS" in data["permissions"]
-    token = data["access_token"]
-    assert len(token) > 20
+    access_token = data["access_token"]
+    refresh_token = data["refresh_token"]
+    assert len(access_token) > 20  # JWT token
+    assert len(refresh_token) > 20  # JWT refresh token
+    assert data["expires_in"] == 3600  # 1 hour in seconds
+    assert data["token_type"] == "bearer"
 
     # 2. Invalid dispatcher credentials -> 401 Unauthorized
     resp_invalid = client.post(
@@ -37,13 +41,17 @@ def test_bug_01_dispatcher_login_and_token_exchange(client):
     )
     assert resp_invalid.status_code == 401
 
-    # 3. Verify session token endpoint
+    # 3. Verify JWT session token endpoint
     resp_verify = client.get(
         "/api/v1/auth/verify",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {access_token}"},
     )
     assert resp_verify.status_code == 200
-    assert resp_verify.json()["valid"] is True
+    verify_data = resp_verify.json()
+    assert verify_data["valid"] is True
+    assert verify_data["callsign"] == "DISPATCHER_SARAH"
+    assert verify_data["role"] == "DISPATCHER"
+    assert "expires_at" in verify_data  # JWT has expiration
 
 
 def test_bug_01_rbac_rejection_for_unauthorized_actors(client, db_session):
@@ -75,6 +83,167 @@ def test_bug_01_rbac_rejection_for_unauthorized_actors(client, db_session):
         json={"unit_id": unit.id, "dispatcher_id": "RANDOM_CALLER_99"},
     )
     assert resp_random.status_code == 403
+
+
+# ===========================================================================
+# BUG-01b: Token Refresh and Expiration Handling
+# ===========================================================================
+def test_bug_01b_token_refresh_with_valid_refresh_token(client):
+    # 1. Login to get access and refresh tokens
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "dispatcher_sarah", "password": "cad112pass"},
+    )
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()
+    
+    original_access_token = login_data["access_token"]
+    refresh_token = login_data["refresh_token"]
+    assert len(refresh_token) > 20
+    assert login_data["token_type"] == "bearer"
+    assert login_data["expires_in"] == 3600  # 1 hour
+    
+    # 2. Refresh the access token using the refresh token
+    refresh_resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert refresh_resp.status_code == 200
+    refresh_data = refresh_resp.json()
+    
+    # 3. Verify the new access token is valid (may be same if created in same second)
+    new_access_token = refresh_data["access_token"]
+    # Tokens may be identical if created in the same second (same iat)
+    # What matters is that the refresh works and returns a valid token
+    assert len(new_access_token) > 20
+    assert refresh_data["token_type"] == "bearer"
+    assert refresh_data["expires_in"] == 3600
+    assert refresh_data["callsign"] == "DISPATCHER_SARAH"
+    assert refresh_data["role"] == "DISPATCHER"
+    
+    # 4. Verify the new access token works
+    verify_resp = client.get(
+        "/api/v1/auth/verify",
+        headers={"Authorization": f"Bearer {new_access_token}"},
+    )
+    assert verify_resp.status_code == 200
+    verify_data = verify_resp.json()
+    assert verify_data["valid"] is True
+    assert verify_data["callsign"] == "DISPATCHER_SARAH"
+
+
+def test_bug_01b_refresh_rejects_invalid_refresh_token(client):
+    # 1. Try to refresh with an invalid refresh token
+    resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": "invalid-refresh-token-12345"},
+    )
+    assert resp.status_code == 401
+    assert "Invalid or expired refresh token" in resp.json()["detail"]
+
+
+def test_bug_01b_refresh_rejects_access_token_as_refresh_token(client):
+    # 1. Login to get tokens
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "dispatcher_sarah", "password": "cad112pass"},
+    )
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()
+    access_token = login_data["access_token"]
+    
+    # 2. Try to use the access token as a refresh token (should fail)
+    resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": access_token},
+    )
+    assert resp.status_code == 401
+    assert "Invalid token type" in resp.json()["detail"]
+
+
+def test_bug_01b_refresh_rejects_empty_refresh_token(client):
+    # 1. Try to refresh with an empty refresh token
+    resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": ""},
+    )
+    assert resp.status_code == 422  # Validation error
+
+
+def test_bug_01b_expired_access_token_can_be_refreshed(client):
+    """Test that an expired access token can be refreshed using a valid refresh token.
+    This test verifies the token refresh flow works correctly.
+    """
+    # 1. Login to get tokens
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "supervisor_kumar", "password": "cad112pass"},
+    )
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()
+    
+    access_token = login_data["access_token"]
+    refresh_token = login_data["refresh_token"]
+    
+    # 2. Verify the access token works initially
+    verify_resp = client.get(
+        "/api/v1/auth/verify",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert verify_resp.status_code == 200
+    assert verify_resp.json()["valid"] is True
+    
+    # 3. Refresh the token
+    refresh_resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert refresh_resp.status_code == 200
+    refresh_data = refresh_resp.json()
+    
+    # 4. Verify the refreshed token works
+    new_access_token = refresh_data["access_token"]
+    verify_resp2 = client.get(
+        "/api/v1/auth/verify",
+        headers={"Authorization": f"Bearer {new_access_token}"},
+    )
+    assert verify_resp2.status_code == 200
+    assert verify_resp2.json()["valid"] is True
+    assert verify_resp2.json()["callsign"] == "SUPERVISOR_KUMAR"
+    assert verify_resp2.json()["role"] == "SUPERVISOR"
+
+
+def test_bug_01b_multiple_refresh_cycles_work(client):
+    """Test that multiple refresh cycles work correctly.
+    Each refresh should return a valid access token.
+    """
+    # 1. Login to get initial tokens
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "commissioner_lead", "password": "cad112pass"},
+    )
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()
+    refresh_token = login_data["refresh_token"]
+    
+    # 2. Perform multiple refresh cycles
+    for i in range(3):
+        refresh_resp = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
+        assert refresh_resp.status_code == 200
+        refresh_data = refresh_resp.json()
+        
+        # Verify each refreshed token works
+        verify_resp = client.get(
+            "/api/v1/auth/verify",
+            headers={"Authorization": f"Bearer {refresh_data['access_token']}"},
+        )
+        assert verify_resp.status_code == 200
+        assert verify_resp.json()["valid"] is True
+        assert verify_resp.json()["callsign"] == "DISPATCHER_COMMISSIONER_01"
+        assert verify_resp.json()["role"] == "ADMIN"
 
 
 # ===========================================================================
@@ -270,3 +439,174 @@ def test_bug_06_drill_context_validation():
     assert assessment["severity"] == "LEVEL_4_LOW"
     assert "CONTEXT_DRILL_OR_FALSE_ALARM" in assessment["uncertainty_flags"]
     assert assessment["requires_human_review"] is True
+
+# ===========================================================================
+# BUG-01c: Rate Limiting on Auth Endpoints
+# ===========================================================================
+def test_bug_01c_rate_limit_returns_429_after_exceeding_limit(client):
+    """Test that exceeding rate limit returns 429 Too Many Requests."""
+    # Login endpoint limit: 10 requests per minute
+    # Make 10 successful/failed logins to hit the limit
+    for i in range(10):
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "test_user", "password": "wrong_password"},
+        )
+        # Should get 401 for invalid credentials, not 429 yet
+    
+    # 11th request should be rate limited (429)
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "test_user", "password": "wrong_password"},
+    )
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+    assert "X-RateLimit-Limit" in resp.headers
+    assert "X-RateLimit-Remaining" in resp.headers
+
+
+def test_bug_01c_rate_limit_headers_present(client):
+    """Test that rate limit headers are present in responses."""
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "test_user", "password": "wrong_password"},
+    )
+    
+    # Check for rate limit headers
+    assert "X-RateLimit-Limit" in resp.headers
+    assert "X-RateLimit-Remaining" in resp.headers
+    # Reset header may or may not be present depending on implementation
+    
+    # Verify header values are valid
+    limit = int(resp.headers["X-RateLimit-Limit"])
+    remaining = int(resp.headers["X-RateLimit-Remaining"])
+    
+    assert limit > 0
+    assert remaining >= 0
+    assert remaining < limit  # We just made a request
+
+
+def test_bug_01c_successful_auth_clears_rate_limit(client):
+    """Test that successful authentication clears the rate limit for that user."""
+    # Make several failed login attempts
+    for i in range(5):
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "dispatcher_sarah", "password": "wrong_password"},
+        )
+        assert resp.status_code == 401
+    
+    # Now make a successful login
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "dispatcher_sarah", "password": "cad112pass"},
+    )
+    assert resp.status_code == 200
+    
+    # After successful auth, rate limit should be cleared for this user
+    # Make another request - should not be rate limited
+    resp2 = client.post(
+        "/api/v1/auth/login",
+        json={"username": "dispatcher_sarah", "password": "wrong_password"},
+    )
+    # Should get 401 (invalid password) not 429 (rate limited)
+    assert resp2.status_code == 401
+
+
+def test_bug_01c_rate_limit_on_refresh_endpoint(client):
+    """Test rate limiting on token refresh endpoint."""
+    # Login first to get a refresh token
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "dispatcher_sarah", "password": "cad112pass"},
+    )
+    assert login_resp.status_code == 200
+    refresh_token = login_resp.json()["refresh_token"]
+    
+    # Make several refresh requests
+    # Refresh limit: 30 requests per minute, so we need to make many requests
+    # to hit the limit. Let's make 30 requests.
+    for i in range(30):
+        resp = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
+        # Should succeed (200) for valid refresh token
+    
+    # 31st request should be rate limited
+    resp = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert resp.status_code == 429
+
+
+def test_bug_01c_rate_limit_varies_by_username(client):
+    """Test that rate limiting is per-username (different users have separate limits)."""
+    # Make requests as user1 until rate limited
+    rate_limit_hit = False
+    for i in range(15):
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "user1_test", "password": "wrong"},
+        )
+        if resp.status_code == 429:
+            rate_limit_hit = True
+            break
+    
+    assert rate_limit_hit, "Should have hit rate limit for user1"
+    
+    # Now try with a different username - should not be rate limited
+    # (separate rate limit buckets per username)
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "user2_test", "password": "wrong"},
+    )
+    # Should get 401 (invalid credentials) not 429 (rate limited)
+    assert resp.status_code == 401
+
+
+def test_bug_01c_rate_limit_headers_on_429(client):
+    """Test that 429 responses include proper rate limit headers."""
+    # Hit rate limit
+    for i in range(12):
+        client.post(
+            "/api/v1/auth/login",
+            json={"username": "rate_test_user", "password": "wrong"},
+        )
+    
+    # Get the 429 response
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "rate_test_user", "password": "wrong"},
+    )
+    
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+    assert "X-RateLimit-Limit" in resp.headers
+    assert "X-RateLimit-Remaining" in resp.headers
+    
+    # Verify header values
+    assert int(resp.headers["Retry-After"]) > 0
+    assert int(resp.headers["X-RateLimit-Limit"]) > 0
+    assert int(resp.headers["X-RateLimit-Remaining"]) == 0
+
+
+def test_bug_01c_429_response_body(client):
+    """Test that 429 responses have appropriate error message."""
+    # Hit rate limit
+    for i in range(12):
+        client.post(
+            "/api/v1/auth/login",
+            json={"username": "rate_test_user2", "password": "wrong"},
+        )
+    
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "rate_test_user2", "password": "wrong"},
+    )
+    
+    assert resp.status_code == 429
+    data = resp.json()
+    assert "detail" in data
+    assert "rate limit" in data["detail"].lower() or "try again" in data["detail"].lower()

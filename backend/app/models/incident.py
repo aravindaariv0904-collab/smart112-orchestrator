@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Float, Boolean, DateTime
+from sqlalchemy import Column, String, Text, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from backend.app.core.database import Base
 
 class Incident(Base):
@@ -22,7 +23,12 @@ class Incident(Base):
     
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-
+    
+    # Relationships - using back_populates consistently
+    dispatches = relationship("DispatchAssignment", back_populates="incident", foreign_keys="[DispatchAssignment.incident_id]", order_by="desc(DispatchAssignment.timestamp)")
+    call_session = relationship("CallSession", back_populates="incident", uselist=False)
+    evidence_items = relationship("Evidence", back_populates="incident_rel")
+    
     def to_dict(self):
         return {
             "id": self.id,

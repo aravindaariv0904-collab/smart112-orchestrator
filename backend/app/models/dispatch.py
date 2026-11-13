@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from backend.app.core.database import Base
 
 class DispatchAssignment(Base):
@@ -14,6 +15,10 @@ class DispatchAssignment(Base):
     notes = Column(Text, nullable=True)
     
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    # Relationships - using back_populates consistently
+    unit = relationship("EmergencyUnit", back_populates="dispatches", foreign_keys="[DispatchAssignment.unit_id]")
+    incident = relationship("Incident", back_populates="dispatches", foreign_keys="[DispatchAssignment.incident_id]")
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     on_scene_at = Column(DateTime(timezone=True), nullable=True)
     cleared_at = Column(DateTime(timezone=True), nullable=True)

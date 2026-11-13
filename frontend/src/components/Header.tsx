@@ -11,10 +11,12 @@ import {
   Radio,
   BarChart3,
   FileText,
-  Activity
+  Activity,
+  Building2,
+  Navigation
 } from 'lucide-react';
 
-export type PortalTab = 'CAD' | 'PUBLIC' | 'MDT' | 'ANALYTICS' | 'AUDIT';
+export type PortalTab = 'CAD' | 'PUBLIC' | 'FLEET' | 'FACILITIES' | 'MDT' | 'ANALYTICS' | 'AUDIT';
 
 interface HeaderProps {
   activeTab: PortalTab;
@@ -102,6 +104,30 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('FLEET')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'FLEET'
+              ? 'bg-rose-600 text-white shadow-md shadow-rose-900/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Truck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Fleet &amp; Telemetry</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('FACILITIES')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'FACILITIES'
+              ? 'bg-rose-600 text-white shadow-md shadow-rose-900/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Building2 className="w-3.5 h-3.5 text-rose-400" />
+          <span>Hospitals &amp; Beds</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('MDT')}
           className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
             activeTab === 'MDT'
@@ -109,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <Truck className="w-3.5 h-3.5 text-amber-400" />
+          <Navigation className="w-3.5 h-3.5 text-amber-400" />
           <span>Responder MDT</span>
         </button>
 
@@ -133,8 +159,8 @@ export const Header: React.FC<HeaderProps> = ({
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <FileText className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Audit &amp; Fleet</span>
+          <FileText className="w-3.5 h-3.5 text-sky-400" />
+          <span>Governance Audit</span>
         </button>
       </nav>
 

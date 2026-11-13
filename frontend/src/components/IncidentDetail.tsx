@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ShieldAlert, 
-  MapPin, 
-  Clock, 
-  Truck, 
-  Send, 
-  FileText, 
-  AlertTriangle, 
-  CheckCircle, 
-  Users, 
-  Flame, 
-  Activity, 
+import React, { useState, useEffect } from 'react';
+import {
+  ShieldAlert,
+  MapPin,
+  Clock,
+  Truck,
+  Send,
+  FileText,
+  AlertTriangle,
+  CheckCircle,
+  Users,
+  Flame,
+  Activity,
   CheckCheck,
   RotateCw,
-  Volume2,
+  Radio,
   HelpCircle,
-  Sparkles,
-  Radio
+  Volume2
 } from 'lucide-react';
 import { Incident, RecommendationResponse, CandidateUnit, ExtractedFacts } from '../types';
 import { api } from '../services/api';
@@ -33,85 +32,64 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
   onOpenAuditLog
 }) => {
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null);
-  const [recError, setRecError] = useState<string | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+  const [recsError, setRecsError] = useState<string | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<CandidateUnit | null>(null);
   const [dispatcherId, setDispatcherId] = useState('DISPATCHER_SARAH');
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [followUpQuestions, setFollowUpQuestions] = useState<any[]>([]);
-  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
-  const [audioAdvisoryLoading, setAudioAdvisoryLoading] = useState(false);
-  const [advisoryActive, setAdvisoryActive] = useState<string | null>(null);
-
-  const handleLoadQuestions = async () => {
-    if (!incident) return;
-    setIsLoadingQuestions(true);
-    try {
-      const res = await api.getFollowUpQuestions(incident.id);
-      setFollowUpQuestions(res.priority_questions || []);
-    } catch (err: any) {
-      setActionMessage({ text: `Failed to generate questions: ${err.message}`, type: 'error' });
-    } finally {
-      setIsLoadingQuestions(false);
-    }
-  };
-
-  const handleSynthesizeAdvisory = async (type: string) => {
-    setAudioAdvisoryLoading(true);
-    try {
-      const res = await api.synthesizeGuidance(type);
-      setAdvisoryActive(res.guidance_type);
-      if (res.audio_base64) {
-        const mime = res.mime_type || 'audio/wav';
-        const audio = new Audio(`data:${mime};base64,${res.audio_base64}`);
-        audio.play().catch(() => {});
-      }
-      setActionMessage({ text: `Broadcasted ${res.guidance_type} audio guidance advisory.`, type: 'success' });
-    } catch (err: any) {
-      setActionMessage({ text: `Voice guidance failed: ${err.message}`, type: 'error' });
-    } finally {
-      setAudioAdvisoryLoading(false);
-    }
-  };
+  const [followUpQuestions, setFollowUpQuestions] = useState<Array<{ priority: number; category: string; question: string; urgency: string }>>([]);
+  const [isLoadingFollowUp, setIsLoadingFollowUp] = useState(false);
+  const [guidanceTemplates, setGuidanceTemplates] = useState<Array<{ type: string; advisory: string }>>([]);
+  const [isLoadingGuidance, setIsLoadingGuidance] = useState(false);
 
   // Parse assessment JSON if available
   let facts: ExtractedFacts = {};
   if (incident?.assessment_data) {
     try {
-      facts = typeof incident.assessment_data === 'string' 
-        ? JSON.parse(incident.assessment_data) 
+      facts = typeof incident.assessment_data === 'string'
+        ? JSON.parse(incident.assessment_data)
         : incident.assessment_data;
     } catch {
       facts = {};
     }
   }
 
-  // Load recommendations once per selected incident. Re-running on every status
-  // change would re-POST /recommend after the first call moved ASSESSED -> RECOMMENDED.
-  // Reset all per-incident state so a candidate selected for the previous incident can
-  // never be dispatched to the newly selected one.
-  const recommendationsLoadedFor = useRef<string | null>(null);
+  // Load recommendations whenever incident changes
   useEffect(() => {
     if (!incident) {
-      recommendationsLoadedFor.current = null;
       setRecommendation(null);
       setSelectedUnit(null);
-      setRecError(null);
       return;
     }
 
-    if (recommendationsLoadedFor.current === incident.id) return;
-    recommendationsLoadedFor.current = incident.id;
-    setRecommendation(null);
-    setSelectedUnit(null);
-    setRecError(null);
-
     if (incident.status === 'RECOMMENDED' || incident.status === 'ASSESSED') {
       loadRecommendations(incident.id);
+    } else {
+      setRecommendation(null);
     }
+  }, [incident?.id, incident?.status]);
+
+  // Load guidance templates and follow-up questions
+  useEffect(() => {
+    if (!incident) return;
+
+    const loadAdditionalData = async () => {
+      try {
+        const [templates, questions] = await Promise.all([
+          api.getGuidanceTemplates().catch(() => ({ templates: [] })),
+          api.getFollowUpQuestions(incident.id).catch(() => ({ priority_questions: [] }))
+        ]);
+        setGuidanceTemplates(templates.templates || []);
+        setFollowUpQuestions(questions.priority_questions || []);
+      } catch (err) {
+        console.warn('Failed to load additional data:', err);
+      }
+    };
+
+    loadAdditionalData();
   }, [incident?.id]);
 
   // Escape closes the dispatch confirmation modal, unless a request is in flight.
@@ -128,16 +106,16 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
 
   const loadRecommendations = async (incId: string) => {
     setIsLoadingRecs(true);
-    setRecError(null);
+    setRecsError(null);
     try {
       const data = await api.getRecommendations(incId);
       setRecommendation(data);
-      setSelectedUnit(data.candidate_units.length > 0 ? data.candidate_units[0] : null);
+      if (data.candidate_units.length > 0) {
+        setSelectedUnit(data.candidate_units[0]);
+      }
     } catch (err: any) {
-      // A failed matcher call must not be rendered as "no units available".
-      setRecommendation(null);
-      setSelectedUnit(null);
-      setRecError(err.message || 'Unit matching service unavailable.');
+      console.warn('Failed to load candidate units:', err.message);
+      setRecsError(err.message || 'Failed to load recommendations');
     } finally {
       setIsLoadingRecs(false);
     }
@@ -159,8 +137,6 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         type: 'success'
       });
       setShowConfirmModal(false);
-      setRecommendation(null);
-      setSelectedUnit(null);
       if (onRefreshIncident) onRefreshIncident();
     } catch (err: any) {
       setActionMessage({ text: err.message, type: 'error' });
@@ -214,7 +190,7 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-400 space-y-3">
         <Activity className="w-12 h-12 text-slate-600 animate-pulse" />
-        <h2 className="text-base font-semibold text-slate-200">No Emergency Selected</h2>
+        <h3 className="text-base font-semibold text-slate-200">No Emergency Selected</h3>
         <p className="text-xs text-slate-500 max-w-xs">
           Select an emergency incident from the left triage queue to review AI extraction facts, run spatial proximity calculations, and authorize dispatch.
         </p>
@@ -234,11 +210,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
               {incident.incident_number}
             </span>
             <span
-              className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                isCritical
-                  ? 'bg-rose-950 text-rose-300 border-rose-500/50 animate-pulse'
-                  : 'bg-amber-950 text-amber-300 border-amber-500/50'
-              }`}
+              className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${isCritical
+                ? 'bg-rose-950 text-rose-300 border-rose-500/50 animate-pulse'
+                : 'bg-amber-950 text-amber-300 border-amber-500/50'
+                }`}
             >
               {incident.severity}
             </span>
@@ -276,11 +251,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         {/* Action message feedback */}
         {actionMessage && (
           <div
-            className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${
-              actionMessage.type === 'success'
-                ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-500/50'
-                : 'bg-rose-950/80 text-rose-200 border border-rose-500/50'
-            }`}
+            className={`p-3 rounded-lg text-xs font-medium flex items-center gap-2 ${actionMessage.type === 'success'
+              ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-500/50'
+              : 'bg-rose-950/80 text-rose-200 border border-rose-500/50'
+              }`}
           >
             {actionMessage.type === 'success' ? (
               <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
@@ -384,80 +358,6 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
             </div>
           )}
 
-          {/* BUG-11: Targeted Triage Follow-up Questions */}
-          <div className="pt-2 border-t border-slate-800/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] font-semibold text-sky-400 uppercase flex items-center gap-1.5">
-                <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
-                <span>Targeted Triage Follow-up Questions</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleLoadQuestions}
-                disabled={isLoadingQuestions}
-                className="px-2 py-0.5 rounded bg-sky-950/60 hover:bg-sky-900 text-sky-300 border border-sky-500/40 text-[10px] font-semibold flex items-center gap-1 transition"
-              >
-                <Sparkles className={`w-3 h-3 ${isLoadingQuestions ? 'animate-spin' : ''}`} />
-                <span>{isLoadingQuestions ? 'Generating...' : 'Analyze Gaps'}</span>
-              </button>
-            </div>
-            {followUpQuestions.length > 0 ? (
-              <div className="space-y-1.5">
-                {followUpQuestions.map((q, idx) => (
-                  <div key={idx} className="p-2 rounded bg-slate-900 border border-slate-800 text-[11px] space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-bold text-sky-300">P{q.priority} · {q.category}</span>
-                      <span className="px-1.5 py-0.2 rounded bg-rose-950/60 text-rose-400 border border-rose-500/30 font-mono">
-                        {q.urgency}
-                      </span>
-                    </div>
-                    <p className="text-slate-200">{q.question}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[10px] text-slate-500 italic">
-                Click 'Analyze Gaps' to dynamically extract targeted caller interview questions for missing life-safety factors.
-              </p>
-            )}
-          </div>
-
-          {/* BUG-08: Voice Guidance Synthesis (TTS) */}
-          <div className="pt-2 border-t border-slate-800/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] font-semibold text-emerald-400 uppercase flex items-center gap-1.5">
-                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Caller Voice Guidance Advisory (TTS)</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleSynthesizeAdvisory('CPR_ASSIST')}
-                disabled={audioAdvisoryLoading}
-                className="p-1.5 rounded bg-slate-900 hover:bg-emerald-950/40 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
-              >
-                <span>CPR Assist</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSynthesizeAdvisory('FIRE_EVAC')}
-                disabled={audioAdvisoryLoading}
-                className="p-1.5 rounded bg-slate-900 hover:bg-orange-950/40 text-orange-300 border border-orange-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
-              >
-                <span>Fire Evac</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSynthesizeAdvisory('HEMORRHAGE_CONTROL')}
-                disabled={audioAdvisoryLoading}
-                className="p-1.5 rounded bg-slate-900 hover:bg-rose-950/40 text-rose-300 border border-rose-500/30 text-[10px] font-semibold transition flex items-center justify-center gap-1"
-              >
-                <span>Bleed Stop</span>
-              </button>
-            </div>
-          </div>
-
           {/* Uncertainty flags */}
           {facts.uncertainty_flags && facts.uncertainty_flags.length > 0 && (
             <div className="space-y-1">
@@ -473,27 +373,97 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
           )}
         </div>
 
+        {/* Caller Voice Guidance */}
+        {guidanceTemplates.length > 0 && (
+          <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Volume2 className="w-4 h-4 text-rose-400" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Caller Voice Guidance Advisory
+                </span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-500/30">
+                Life-Safety Pre-Arrival Instructions
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {guidanceTemplates.map((template) => (
+                <div
+                  key={template.type}
+                  className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-slate-200">{template.type.replace('_', ' ')}</span>
+                    <Radio className="w-3 h-3 text-slate-500" />
+                  </div>
+                  <p className="text-slate-400 italic leading-relaxed">{template.advisory}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Targeted Triage Follow-up Questions */}
+        {followUpQuestions.length > 0 && (
+          <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-purple-400" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Targeted Triage Follow-up Questions
+                </span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-500/30">
+                AI-Generated · {followUpQuestions.length} questions
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {followUpQuestions.map((q, idx) => (
+                <div
+                  key={idx}
+                  className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs flex items-start gap-2.5"
+                >
+                  <span
+                    className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                      q.urgency === 'IMMEDIATE'
+                        ? 'bg-rose-600 text-white'
+                        : q.urgency === 'HIGH'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-sky-600 text-white'
+                    }`}
+                  >
+                    {q.priority}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-slate-200 font-medium">{q.question}</p>
+                    <span className="text-[10px] text-slate-500 uppercase mt-1 block">{q.category} · {q.urgency}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Spatial Unit Recommendation Section */}
         <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
                 PostGIS Proximity &amp; Tactical Matching
-              </h2>
+              </h4>
               <p className="text-[10px] text-slate-400">
                 Ranked by geodesic distance; travel time uses a fixed 40 km/h model (not live routing)
               </p>
             </div>
-            
+
             <button
               onClick={() => loadRecommendations(incident.id)}
-              disabled={isLoadingRecs || !['ASSESSED', 'RECOMMENDED'].includes(incident.status)}
-              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 border border-slate-700 text-xs transition"
-              title={
-                ['ASSESSED', 'RECOMMENDED'].includes(incident.status)
-                  ? 'Recalculate proximity'
-                  : `Matching closed for ${incident.status} incidents`
-              }
+              disabled={isLoadingRecs}
+              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition"
+              title="Recalculate Proximity"
             >
               <RotateCw className={`w-3.5 h-3.5 ${isLoadingRecs ? 'animate-spin text-rose-400' : ''}`} />
             </button>
@@ -504,36 +474,24 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
               <div className="w-5 h-5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <p>Executing PostGIS distance query...</p>
             </div>
-          ) : recError ? (
-            <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-600/70 text-rose-200 text-xs space-y-2">
-              <div className="flex items-center gap-2 font-bold text-rose-300">
-                <AlertTriangle className="w-4 h-4 text-rose-400" />
+          ) : recsError ? (
+            <div className="p-4 rounded-lg bg-rose-950/40 border-2 border-rose-600/80 text-rose-200 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold text-rose-300 text-sm">
+                <AlertTriangle className="w-5 h-5 text-rose-400 animate-pulse" />
                 <span>UNIT MATCHING UNAVAILABLE</span>
               </div>
-              <p className="text-[11px] leading-relaxed">
-                The proximity service could not be reached ({recError}). No availability or ETA
-                conclusion has been drawn. Incident details remain available.
+              <p className="text-xs text-rose-200 font-medium leading-relaxed">
+                {recsError}
               </p>
-              {['ASSESSED', 'RECOMMENDED'].includes(incident.status) && (
-                <button
-                  type="button"
-                  onClick={() => loadRecommendations(incident.id)}
-                  className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold transition"
-                >
-                  Retry matching
-                </button>
-              )}
             </div>
-          ) : !['ASSESSED', 'RECOMMENDED'].includes(incident.status) ? (
-            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
-              <div className="flex items-center gap-2 font-bold text-slate-200">
-                <ShieldAlert className="w-4 h-4 text-slate-400" />
-                <span>Matching closed for this incident</span>
+          ) : !recommendation && ['DISPATCHED', 'ON_SCENE', 'RESOLVED', 'CANCELLED'].includes(incident.status) ? (
+            <div className="p-4 rounded-lg bg-slate-900/60 border border-slate-800 text-slate-400 text-xs space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold text-slate-300">Matching closed for this incident</span>
               </div>
-              <p className="text-[11px] leading-relaxed text-slate-400">
-                This incident is <span className="font-mono font-bold text-slate-200">{incident.status}</span>.
-                Unit matching is read-only once a dispatch is active or the incident is closed; the
-                assignment and status history remain in the audit ledger.
+              <p className="text-xs text-slate-400">
+                Unit recommendations are no longer available for incidents in {incident.status} status.
               </p>
             </div>
           ) : recommendation && recommendation.candidate_units.length > 0 ? (
@@ -549,11 +507,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
                     <div
                       key={unit.unit_id}
                       onClick={() => setSelectedUnit(unit)}
-                      className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center justify-between gap-3 ${
-                        isSelected
-                          ? 'bg-rose-950/40 border-rose-500/60 shadow-md ring-1 ring-rose-500/30'
-                          : 'bg-slate-900 border-slate-800 hover:bg-slate-800/80'
-                      }`}
+                      className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center justify-between gap-3 ${isSelected
+                        ? 'bg-rose-950/40 border-rose-500/60 shadow-md ring-1 ring-rose-500/30'
+                        : 'bg-slate-900 border-slate-800 hover:bg-slate-800/80'
+                        }`}
                     >
                       <div className="flex items-center gap-2.5">
                         <div className="w-6 h-6 rounded bg-slate-800 border border-slate-700 text-xs flex items-center justify-center font-bold text-slate-300">
@@ -581,25 +538,18 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
                 })}
               </div>
             </div>
-          ) : recommendation ? (
+          ) : (
             <div className="p-4 rounded-lg bg-rose-950/40 border-2 border-rose-600/80 text-rose-200 text-xs space-y-2">
               <div className="flex items-center gap-2 font-bold text-rose-300 text-sm">
                 <AlertTriangle className="w-5 h-5 text-rose-400 animate-pulse" />
                 <span>CRITICAL RESOURCE SHORTAGE</span>
               </div>
               <p className="text-xs text-rose-200 font-medium leading-relaxed">
-                {recommendation?.rationale ||
-                  'No units currently AVAILABLE. Mutual aid escalation required.'}
+                No units currently AVAILABLE. Mutual aid escalation required.
               </p>
               <div className="text-[11px] text-slate-300 bg-slate-950/80 p-2 rounded border border-slate-800">
-                Severity is unchanged by resource availability. Contact neighboring district
-                dispatch or a mutual aid coordinator to request inter-jurisdictional assistance.
+                Contact neighboring district dispatch or mutual aid coordinator to request inter-jurisdictional ambulance / fire assistance.
               </div>
-            </div>
-          ) : (
-            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-400">
-              Matching has not run for this incident yet. Use the refresh control above to calculate
-              proximity; no unit is dispatched without dispatcher confirmation.
             </div>
           )}
         </div>
@@ -607,10 +557,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         {/* Human Dispatch Authorization Action */}
         {['REPORTED', 'ASSESSED', 'RECOMMENDED'].includes(incident.status) && (
           <div className="bg-gradient-to-br from-slate-950 to-rose-950/30 rounded-xl p-4 border border-rose-500/30 space-y-3">
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <Send className="w-4 h-4 text-rose-400" />
               <span>Human Dispatch Authorization Gate</span>
-            </h2>
+            </h4>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
@@ -641,8 +591,8 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
             >
               <CheckCheck className="w-4 h-4" />
               <span>
-                {isDispatching 
-                  ? 'Authorizing Deployment...' 
+                {isDispatching
+                  ? 'Authorizing Deployment...'
                   : `Confirm & Dispatch ${selectedUnit?.callsign || 'Selected Unit'}`}
               </span>
             </button>
@@ -721,10 +671,10 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         {['DISPATCHED', 'ON_SCENE'].includes(incident.status) && (
           <div className="bg-slate-950 rounded-xl p-4 border border-amber-500/40 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+              <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
                 <Truck className="w-4 h-4 text-amber-400" />
                 <span>Unit Deployment MDT Live Tracking</span>
-              </h2>
+              </h4>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 animate-pulse">
                 {incident.status}
               </span>

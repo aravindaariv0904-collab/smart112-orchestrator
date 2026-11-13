@@ -9,8 +9,21 @@ vi.mock('../services/api', () => ({
     getRecommendations: vi.fn(),
     approveDispatch: vi.fn(),
     updateUnitStatus: vi.fn(),
+    getGuidanceTemplates: vi.fn(),
+    getFollowUpQuestions: vi.fn(),
   },
 }));
+
+const mockGuidanceTemplates = [
+  { type: 'CPR_ASSIST', advisory: 'SMART 112 Medical Advisory: Place the heel of one hand in the center of the chest...' },
+  { type: 'FIRE_EVAC', advisory: 'SMART 112 Fire Safety Advisory: Evacuate the structure immediately...' },
+  { type: 'BLEED_STOP', advisory: 'SMART 112 Trauma Advisory: Apply immediate, firm, direct pressure...' },
+];
+
+const mockFollowUpQuestions = [
+  { priority: 1, category: 'LIFE_SAFETY', question: 'How many total people appear injured?', urgency: 'IMMEDIATE' },
+  { priority: 2, category: 'PATIENT_STATUS', question: 'Is the patient conscious and breathing?', urgency: 'IMMEDIATE' },
+];
 
 const recommendation: RecommendationResponse = {
   incident_id: 'inc-a',
@@ -58,6 +71,10 @@ const assessedIncident: Incident = {
 beforeEach(() => {
   vi.mocked(api.getRecommendations).mockReset();
   vi.mocked(api.getRecommendations).mockResolvedValue(recommendation);
+  vi.mocked(api.getGuidanceTemplates).mockReset();
+  vi.mocked(api.getGuidanceTemplates).mockResolvedValue({ templates: mockGuidanceTemplates });
+  vi.mocked(api.getFollowUpQuestions).mockReset();
+  vi.mocked(api.getFollowUpQuestions).mockResolvedValue({ priority_questions: mockFollowUpQuestions });
 });
 
 describe('IncidentDetail', () => {
@@ -103,12 +120,12 @@ describe('IncidentDetail', () => {
 
   it('renders caller voice guidance and follow-up question widgets', async () => {
     render(<IncidentDetail incident={assessedIncident} />);
-    expect(screen.getByText(/Caller Voice Guidance Advisory/i)).toBeInTheDocument();
-    expect(screen.getByText('CPR Assist')).toBeInTheDocument();
-    expect(screen.getByText('Fire Evac')).toBeInTheDocument();
-    expect(screen.getByText('Bleed Stop')).toBeInTheDocument();
-    expect(screen.getByText(/Targeted Triage Follow-up Questions/i)).toBeInTheDocument();
-    expect(screen.getByText('Analyze Gaps')).toBeInTheDocument();
+    expect(await screen.findByText(/Caller Voice Guidance Advisory/i)).toBeInTheDocument();
+    expect(screen.getByText(/CPR ASSIST/i)).toBeInTheDocument();
+    expect(screen.getByText(/FIRE EVAC/i)).toBeInTheDocument();
+    expect(screen.getByText(/BLEED STOP/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Targeted Triage Follow-up Questions/i)).toBeInTheDocument();
+    expect(screen.getByText(/AI-Generated · 2 questions/i)).toBeInTheDocument();
   });
 
   it('discards the previous unit selection when the selected incident changes', async () => {

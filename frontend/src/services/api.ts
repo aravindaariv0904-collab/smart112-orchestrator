@@ -3,7 +3,8 @@ import {
   EmergencyUnit, 
   RecommendationResponse, 
   AuditRecord, 
-  AudioTranscribeResult 
+  AudioTranscribeResult,
+  Facility
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -219,5 +220,18 @@ export const api = {
   // BUG-14: Real Database Analytics Dashboard
   async getDashboardAnalytics(): Promise<any> {
     return request('/analytics/dashboard');
+  },
+
+  async getFacilities(): Promise<Facility[]> {
+    return request<Facility[]>('/facilities');
+  },
+
+  async getGPSReadings(deviceId?: string): Promise<any[]> {
+    const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    return request<any[]>(`/gps/readings${query}`);
+  },
+
+  async getNotifications(): Promise<any[]> {
+    return request<any[]>('/notifications');
   }
 };
